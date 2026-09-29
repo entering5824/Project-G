@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TierPack v1",
+  "type": "object",
+  "required": ["version", "ratings"],
+  "properties": {
+    "version": {"const": 1},
+    "ratings": {"type": "object", "additionalProperties": {"type": "object", "required": ["score"], "properties": {
+      "score": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+      "notes": {"type": "string"}
+    }, "additionalProperties": false}},
+    "minimumTierForRoadmap": {"enum": ["S+", "S", "A", "B", "C", "D"]},
+    "controls": {"type": "object", "additionalProperties": {"enum": ["FORCE_INCLUDE", "IGNORE"]}},
+    "selectedSets": {"type": "object", "additionalProperties": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

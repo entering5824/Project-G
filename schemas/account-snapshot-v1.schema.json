@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genshin-planner.local/schemas/account-snapshot-v1.schema.json",
+  "title": "AccountSnapshot v1",
+  "type": "object",
+  "required": ["version", "characters"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "source": { "type": "object" },
+    "characters": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["level", "talents"],
+        "properties": {
+          "level": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "ascension": { "type": "integer", "minimum": 0, "maximum": 6 },
+          "constellation": { "type": "integer", "minimum": 0, "maximum": 6 },
+          "weapon": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "required": ["key", "level"], "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "level": { "type": "integer", "minimum": 1, "maximum": 90 },
+                "ascension": { "type": "integer", "minimum": 0, "maximum": 6 },
+                "refinement": { "type": "integer", "minimum": 1, "maximum": 5 }
+              }, "additionalProperties": false }
+            ]
+          },
+          "talents": { "type": "object", "required": ["normal", "skill", "burst"], "properties": {
+            "normal": { "type": "integer", "minimum": 1, "maximum": 15 },
+            "skill": { "type": "integer", "minimum": 1, "maximum": 15 },
+            "burst": { "type": "integer", "minimum": 1, "maximum": 15 }
+          }, "additionalProperties": false },
+          "artifacts": { "type": "object", "maxProperties": 5, "properties": {
+            "flower": { "$ref": "#/$defs/artifact" },
+            "plume": { "$ref": "#/$defs/artifact" },
+            "sands": { "$ref": "#/$defs/artifact" },
+            "goblet": { "$ref": "#/$defs/artifact" },
+            "circlet": { "$ref": "#/$defs/artifact" }
+          }, "additionalProperties": false },
+          "activeSets": { "type": "array", "items": { "type": "object", "required": ["setKey", "pieces"], "properties": {
+            "setKey": { "type": "string" }, "pieces": { "type": "integer", "minimum": 2, "maximum": 4 }
+          }, "additionalProperties": false } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "artifact": { "type": "object", "required": ["setKey"], "properties": {
+      "setKey": { "type": "string", "minLength": 1 },
+      "rv": { "type": ["number", "null"], "minimum": 0 },
+      "level": { "type": "integer", "minimum": 0, "maximum": 20 },
+      "mainStat": { "type": "string" }
+    }, "additionalProperties": false }
+  }
+}

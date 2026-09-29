@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-g.local/schemas/aef-v1.schema.json",
+  "title": "Artifact Evaluation Exchange Format v1",
+  "description": "Externally extracted artifact metrics confirmed by a user. No image/OCR data is accepted.",
+  "oneOf": [
+    { "$ref": "#/$defs/evaluation" },
+    {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/evaluation" }
+    },
+    {
+      "type": "object",
+      "required": ["format", "version", "evaluations"],
+      "properties": {
+        "format": { "const": "AEF" },
+        "version": { "const": 1 },
+        "evaluations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evaluation" } }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "metric": { "type": ["number", "null"], "minimum": 0 },
+    "slotMetrics": {
+      "type": "object",
+      "properties": {
+        "flower": { "$ref": "#/$defs/metric" },
+        "plume": { "$ref": "#/$defs/metric" },
+        "sands": { "$ref": "#/$defs/metric" },
+        "goblet": { "$ref": "#/$defs/metric" },
+        "circlet": { "$ref": "#/$defs/metric" }
+      },
+      "additionalProperties": false
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "rv": { "$ref": "#/$defs/metric" },
+        "cv": { "$ref": "#/$defs/metric" },
+        "rankPercent": { "$ref": "#/$defs/metric" },
+        "customScore": { "$ref": "#/$defs/metric" },
+        "slots": { "$ref": "#/$defs/slotMetrics" },
+        "extra": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } }
+      },
+      "anyOf": [
+        { "required": ["rv"] }, { "required": ["cv"] },
+        { "required": ["rankPercent"] }, { "required": ["customScore"] },
+        { "required": ["extra"] }
+      ],
+      "additionalProperties": false
+    },
+    "evaluation": {
+      "type": "object",
+      "required": ["format", "version", "characterKey", "metrics"],
+      "properties": {
+        "format": { "const": "AEF" },
+        "version": { "const": 1 },
+        "characterKey": { "type": "string", "minLength": 1 },
+        "source": { "const": "ASSISTED_MANUAL" },
+        "metrics": { "$ref": "#/$defs/metrics" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

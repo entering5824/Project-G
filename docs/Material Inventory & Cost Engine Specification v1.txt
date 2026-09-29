@@ -1,0 +1,2082 @@
+# Genshin Account Progression Planner
+
+# Material Inventory & Cost Engine Specification v1
+
+## 1. Mục tiêu
+
+Cost Engine trả lời:
+
+> Với UpgradeGoal này, account hiện tại còn thiếu gì để hoàn thành?
+
+Nó phải phân biệt rõ ba thứ:
+
+```text
+REQUIRED
+= tổng tài nguyên cần cho upgrade
+
+OWNED
+= tài nguyên người dùng đang có
+
+MISSING
+= phần thực sự cần farm
+```
+
+Ví dụ:
+
+```text
+Goal:
+Fischl Skill 8 → 9
+
+Required:
+Mora          450,000
+Talent Books  6
+Enemy Drops   9
+Weekly Drop   2
+
+Owned:
+Mora          3,000,000
+Talent Books  2
+Enemy Drops   30
+Weekly Drop   2
+
+Missing:
+Talent Books  4
+```
+
+Kết luận:
+
+```text
+Today task:
+Farm Talent Domain
+```
+
+Không tạo task Mora, enemy drop hay weekly boss.
+
+---
+
+# 2. Inventory không phải game inventory đầy đủ
+
+App không cần quản lý mọi item Genshin.
+
+Nó chỉ quản lý:
+
+```text
+material có liên quan tới progression
+```
+
+Các category v1:
+
+```text
+Mora
+Character EXP
+Weapon EXP
+
+Character ascension materials
+Talent books
+Weapon ascension materials
+
+Normal boss drops
+Weekly boss drops
+
+Enemy drops
+Local specialties
+
+Crowns
+```
+
+Không cần:
+
+```text
+food
+furniture
+fish
+quest item
+cooking ingredient
+teapot item
+```
+
+---
+
+# 3. Inventory Entry
+
+```python
+class InventoryEntry:
+    material_key: str
+
+    quantity: int | None
+
+    updated_at: datetime
+
+    source: InventorySource
+```
+
+`quantity`:
+
+```text
+0
+= biết chắc không có
+
+null
+= chưa nhập
+```
+
+Hai trường hợp tuyệt đối không được coi như nhau.
+
+---
+
+# 4. Inventory Source
+
+```python
+class InventorySource(Enum):
+    MANUAL = "manual"
+    IMPORTED = "imported"
+    DERIVED = "derived"
+```
+
+V1 chủ yếu:
+
+```text
+MANUAL
+```
+
+Sau này nếu scanner hỗ trợ inventory thì không cần thay schema.
+
+---
+
+# 5. Inventory UX principle
+
+Không bắt người dùng nhập toàn bộ inventory từ đầu.
+
+App phải hỏi theo planner:
+
+```text
+Top plan hiện cần những material nào?
+```
+
+và chỉ hiện những material đó.
+
+Ví dụ:
+
+```text
+Relevant Inventory
+
+Mora                         [ 3,210,000 ]
+Hero's Wit                   [ 128       ]
+
+Philosophies of Light        [ 12        ]
+Guide to Light               [ 28        ]
+
+Weekly Drop X                [ 3         ]
+Boss Drop Y                  [ 7         ]
+```
+
+---
+
+# 6. Relevant Inventory API
+
+```http
+GET /api/inventory/relevant
+```
+
+Response:
+
+```json
+{
+  "materials": [
+    {
+      "materialKey": "PhilosophiesOfLight",
+      "owned": 12,
+      "neededBy": [
+        "goal_fischl_skill_9",
+        "goal_character_x_burst_10"
+      ]
+    }
+  ]
+}
+```
+
+---
+
+# 7. Bulk Inventory Update
+
+```http
+PUT /api/inventory
+```
+
+Payload:
+
+```json
+{
+  "entries": [
+    {
+      "materialKey": "Mora",
+      "quantity": 3210000
+    },
+    {
+      "materialKey": "PhilosophiesOfLight",
+      "quantity": 12
+    }
+  ]
+}
+```
+
+---
+
+# 8. Cost model
+
+Core model:
+
+```python
+class ResourceRequirement:
+    material_key: str
+    amount: int
+```
+
+Upgrade cost:
+
+```python
+class UpgradeCost:
+    mora: int
+    materials: list[ResourceRequirement]
+```
+
+Resolved cost:
+
+```python
+class ResolvedCost:
+    required: dict[str, int]
+    owned: dict[str, int | None]
+    missing: dict[str, int | None]
+
+    complete: bool
+    has_unknowns: bool
+```
+
+---
+
+# 9. Cost resolution
+
+Pseudo:
+
+```python
+def resolve_cost(required, inventory):
+    result = {}
+
+    for material, amount in required.items():
+        owned = inventory.get(material)
+
+        if owned is None:
+            missing = None
+        else:
+            missing = max(0, amount - owned)
+
+        result[material] = {
+            "required": amount,
+            "owned": owned,
+            "missing": missing,
+        }
+
+    return result
+```
+
+---
+
+# 10. Unknown inventory behavior
+
+Nếu:
+
+```text
+Required = 9
+Owned = null
+```
+
+không được kết luận:
+
+```text
+Missing = 9
+```
+
+Phải là:
+
+```text
+Missing = UNKNOWN
+```
+
+Planner có thể hiện:
+
+```text
+Inventory not provided
+```
+
+---
+
+# 11. Cost completeness states
+
+```text
+READY
+MISSING_RESOURCES
+UNKNOWN_INVENTORY
+BLOCKED_NON_FARMABLE
+WEEKLY_GATED
+```
+
+Ví dụ:
+
+```text
+READY
+= mọi material đã đủ
+```
+
+```text
+UNKNOWN_INVENTORY
+= ít nhất một required material chưa được nhập
+```
+
+---
+
+# 12. Crafting normalization
+
+Material có nhiều tier phải được normalize trước khi tính thiếu.
+
+Ví dụ:
+
+```text
+Green = 1 unit
+Blue = 3 units
+Purple = 9 units
+```
+
+Inventory:
+
+```text
+2 Purple
+3 Blue
+6 Green
+```
+
+Equivalent:
+
+```text
+18 + 9 + 6 = 33 base units
+```
+
+Requirement:
+
+```text
+3 Purple = 27 units
+```
+
+=> đủ.
+
+---
+
+# 13. Crafting resolver
+
+```python
+class MaterialFamilyInventory:
+    family_key: str
+
+    tier1: int
+    tier2: int
+    tier3: int
+```
+
+Function:
+
+```python
+def equivalent_base_units(family):
+    return (
+        tier1
+        + tier2 * 3
+        + tier3 * 9
+    )
+```
+
+---
+
+# 14. Do not simulate crafting loss incorrectly
+
+Nếu recipe:
+
+```text
+3 lower → 1 higher
+```
+
+phải dùng integer division.
+
+Ví dụ:
+
+```text
+8 low
+```
+
+không tương đương:
+
+```text
+2.666 mid
+```
+
+Mà:
+
+```text
+2 mid
++ 2 low remain
+```
+
+Nếu Cost Engine chỉ cần kiểm tra đủ/thiếu thì base-unit model vẫn dùng được trong nhiều trường hợp.
+
+Nhưng nếu cần hiển thị chính xác "cần craft gì", dùng discrete resolver.
+
+---
+
+# 15. Exact Craft Plan
+
+Optional internal output:
+
+```python
+class CraftInstruction:
+    input_material: str
+    input_amount: int
+
+    output_material: str
+    output_amount: int
+```
+
+Ví dụ:
+
+```text
+Craft:
+9 Guide → 3 Philosophies
+```
+
+Không bắt buộc homepage hiển thị.
+
+---
+
+# 16. Mora
+
+Mora là resource đặc biệt.
+
+```text
+material_key = MORA
+```
+
+Nếu thiếu:
+
+```text
+Farm Mora Ley Line
+```
+
+Không cần material family.
+
+---
+
+# 17. Character EXP
+
+Có thể normalize EXP book thành:
+
+```text
+character_exp_value
+```
+
+Ví dụ:
+
+```text
+Hero's Wit
+Adventurer's Experience
+Wanderer's Advice
+```
+
+Planner chỉ cần tổng EXP equivalent.
+
+Không nhất thiết yêu cầu đúng loại book.
+
+---
+
+# 18. Character EXP resolver
+
+Inventory:
+
+```text
+Hero's Wit × 100
+Adventurer EXP × 20
+...
+```
+
+convert:
+
+```text
+total_character_exp
+```
+
+Requirement:
+
+```text
+required_exp
+```
+
+Missing:
+
+```text
+required_exp - owned_exp
+```
+
+UI có thể quy đổi về:
+
+```text
+≈ X Hero's Wit equivalent
+```
+
+---
+
+# 19. Weapon EXP
+
+Tương tự Character EXP.
+
+```text
+Mystic Enhancement Ore
+Fine Enhancement Ore
+Enhancement Ore
+```
+
+convert thành:
+
+```text
+weapon_exp_equivalent
+```
+
+---
+
+# 20. Crowns
+
+Crowns là non-standard resource.
+
+Nếu target cần:
+
+```text
+Talent 9 → 10
+```
+
+và Crown = 0:
+
+```text
+status = BLOCKED_NON_FARMABLE
+```
+
+Không được tạo task:
+
+```text
+Farm Crown
+```
+
+Nếu planner vẫn muốn hiển thị goal:
+
+```text
+Blocked: no Crown available
+```
+
+---
+
+# 21. Weekly materials
+
+Nếu thiếu weekly boss material:
+
+```text
+Goal status:
+WEEKLY_GATED
+```
+
+Task:
+
+```text
+Fight Weekly Boss X
+```
+
+Nếu weekly reward limit đã hết thì v1 chưa cần track.
+
+Có thể thêm sau.
+
+---
+
+# 22. Open-world resources
+
+Bao gồm:
+
+```text
+Local specialties
+Enemy drops
+```
+
+Task type:
+
+```text
+COLLECT_OPEN_WORLD
+```
+
+Không cần estimate resin.
+
+Có thể estimate:
+
+```text
+time_cost
+```
+
+sau này.
+
+---
+
+# 23. Normal boss drops
+
+Task:
+
+```text
+FARM_BOSS
+```
+
+Cost Engine biết:
+
+```text
+boss key
+resin cost per claim
+expected drops
+```
+
+Có thể estimate số lần chạy:
+
+```text
+ceil(missing / expected_drop)
+```
+
+Nhưng vì drop RNG:
+
+```text
+estimated_runs
+```
+
+không phải exact.
+
+---
+
+# 24. Resin estimation
+
+Cost Engine nên tách:
+
+```text
+deterministic_resin
+estimated_resin
+```
+
+Ví dụ:
+
+```text
+Talent domain:
+estimated
+
+Boss:
+estimated
+
+Ley Line:
+fairly deterministic
+
+Artifact:
+highly uncertain
+```
+
+Model:
+
+```python
+class ResinEstimate:
+    minimum: float | None
+    expected: float | None
+    confidence: float
+```
+
+---
+
+# 25. Artifact farming cost
+
+Không cố tính:
+
+```text
+"cần đúng 480 Resin"
+```
+
+Artifact là RNG.
+
+Artifact task chỉ có:
+
+```text
+rng_cost = HIGH
+expected_resin = null
+```
+
+hoặc:
+
+```text
+estimated_farming_intensity
+```
+
+---
+
+# 26. Cost categories
+
+Mỗi Task có:
+
+```python
+class CostProfile:
+    resin_cost: float | None
+    mora_cost: int | None
+
+    open_world_cost: float | None
+    weekly_gate: bool
+    rng_level: float
+```
+
+---
+
+# 27. Efficiency Score
+
+Cost Engine trả `efficiency_score` cho Planner.
+
+Không trực tiếp quyết priority.
+
+Ví dụ:
+
+```text
+READY_TO_UPGRADE
+→ 1.00
+
+VERY_CHEAP
+→ 0.95
+
+CHEAP
+→ 0.90
+
+NORMAL
+→ 0.75
+
+EXPENSIVE
+→ 0.55
+
+VERY_EXPENSIVE
+→ 0.40
+
+RNG_HEAVY
+→ 0.35
+```
+
+---
+
+# 28. Efficiency không được dominate
+
+Planner dùng:
+
+```text
+modifier = 0.85 + 0.15 * efficiency
+```
+
+Như đã khóa ở Planner Engine.
+
+Do đó:
+
+```text
+artifact RNG
+```
+
+không tự động thua mọi thứ.
+
+Nó chỉ bị penalize nhẹ.
+
+---
+
+# 29. Goal Cost Resolution
+
+Ví dụ:
+
+```text
+Goal:
+Weapon 20 → 90
+```
+
+Cost Engine không chỉ trả:
+
+```text
+weapon EXP
+```
+
+mà cả:
+
+```text
+weapon ascension materials
+enemy drops
+Mora
+```
+
+---
+
+# 30. Aggregated step cost
+
+Nếu upgrade:
+
+```text
+20 → 90
+```
+
+Cost Engine cộng:
+
+```text
+20→40
+40→50
+50→60
+60→70
+70→80
+80→90
+```
+
+Planner không phải tự loop.
+
+---
+
+# 31. Partial affordability
+
+Ví dụ target:
+
+```text
+Talent 8 → 10
+```
+
+Inventory đủ:
+
+```text
+8 → 9
+```
+
+nhưng chưa đủ:
+
+```text
+9 → 10
+```
+
+Cost Engine phải phát hiện:
+
+```text
+maximum_affordable_step = 9
+```
+
+---
+
+# 32. Immediate Upgrade Task
+
+Task Compiler có thể tạo:
+
+```text
+Upgrade Skill 8 → 9 now
+```
+
+thay vì:
+
+```text
+Farm materials for 8 → 10
+```
+
+nếu current resources đủ cho bước trung gian.
+
+Điều này làm Today Plan thực tế hơn.
+
+---
+
+# 33. Goal target vẫn giữ 10
+
+Global Goal:
+
+```text
+Skill 8 → 10
+```
+
+không đổi.
+
+Today Task:
+
+```text
+Upgrade 8 → 9 now
+```
+
+Sau snapshot mới:
+
+```text
+Current = 9
+```
+
+Planner tiếp tục:
+
+```text
+9 → 10
+```
+
+---
+
+# 34. Resource dependency graph
+
+Một upgrade có graph:
+
+```text
+Upgrade Skill
+├── Mora
+├── Talent books
+├── Enemy drops
+├── Weekly boss drop
+└── Crown
+```
+
+Mỗi resource có state:
+
+```text
+ENOUGH
+MISSING
+UNKNOWN
+BLOCKED
+```
+
+---
+
+# 35. Task compilation
+
+Pseudo:
+
+```python
+def compile_goal(goal, resolved_cost):
+
+    if resolved_cost.all_ready:
+        return UpgradeNowTask(goal)
+
+    tasks = []
+
+    for missing in resolved_cost.missing_resources:
+
+        source = resolve_source(missing)
+
+        tasks.append(
+            build_resource_task(
+                goal,
+                missing,
+                source,
+            )
+        )
+
+    return tasks
+```
+
+---
+
+# 36. Material tasks phải gắn với parent goal
+
+Ví dụ:
+
+```text
+Farm Talent Books
+```
+
+phải biết nó phục vụ:
+
+```text
+Fischl Skill 8 → 10
+```
+
+Schema:
+
+```python
+class PlannerTask:
+    id: str
+
+    type: TaskType
+    parent_goal_ids: list[str]
+
+    resource_key: str | None
+```
+
+---
+
+# 37. Shared resource batching
+
+Nếu:
+
+```text
+Fischl Skill
+Yae Skill
+Character C Burst
+```
+
+đều cần cùng material:
+
+```text
+Talent Book X
+```
+
+không tạo 3 task riêng.
+
+Group:
+
+```text
+Farm Talent Book X
+```
+
+serves:
+
+```text
+Fischl
+Yae
+Character C
+```
+
+---
+
+# 38. Shared material requirement
+
+Task aggregation:
+
+```python
+required_total =
+    sum(missing_requirement_per_goal)
+```
+
+Nhưng cần tránh overplanning toàn horizon.
+
+V1 nên chỉ aggregate:
+
+```text
+actionable/top-plan goals
+```
+
+không tất cả 84 character.
+
+---
+
+# 39. Planning Window
+
+Config:
+
+```yaml
+cost_engine:
+  material_planning_horizon: 10
+```
+
+Chỉ top 10 relevant global goals được dùng để tính shared farming task.
+
+Nếu không, app sẽ bảo farm hàng trăm material từ ngày đầu.
+
+---
+
+# 40. Reserved materials
+
+Đây là vấn đề quan trọng.
+
+Nếu account có:
+
+```text
+6 Weekly Drop X
+```
+
+Goal A cần:
+
+```text
+4
+```
+
+Goal B cần:
+
+```text
+4
+```
+
+không thể coi cả hai đều:
+
+```text
+OWNED = 6
+```
+
+và kết luận đều gần đủ.
+
+Cần resource allocation simulation.
+
+---
+
+# 41. Priority-based resource reservation
+
+Process global goals theo thứ tự:
+
+```text
+#1
+#2
+#3
+...
+```
+
+Mỗi goal "reserve" resource trước.
+
+Pseudo:
+
+```python
+virtual_inventory = clone(real_inventory)
+
+for goal in ranked_goals:
+    cost = resolve(goal, virtual_inventory)
+
+    reserve_available_materials(
+        goal,
+        virtual_inventory,
+    )
+```
+
+Như vậy goal #1 được ưu tiên dùng inventory trước.
+
+---
+
+# 42. Vì sao resource reservation cần thiết
+
+Không có nó:
+
+```text
+Crown owned = 1
+```
+
+Hai character cùng cần Crown.
+
+Planner có thể nói:
+
+```text
+A ready
+B ready
+```
+
+sai.
+
+Có reservation:
+
+```text
+A ready
+B missing Crown
+```
+
+---
+
+# 43. Reservation chỉ là Planner simulation
+
+Không mutate inventory thật.
+
+```text
+real_inventory
+```
+
+không đổi cho tới khi user nhập lại hoặc scanner/import khác cập nhật.
+
+---
+
+# 44. UpgradeNow priority
+
+Nếu goal có:
+
+```text
+all resources ready
+```
+
+Today Task được bonus nhỏ:
+
+```text
+READY_BONUS
+```
+
+Ví dụ:
+
+```text
++4 score
+```
+
+vì user có thể làm ngay mà không farm.
+
+Không đủ để đảo một chênh lệch priority lớn.
+
+---
+
+# 45. Material Unknown handling
+
+Nếu goal #1 có inventory unknown:
+
+Không nên:
+
+```text
+block toàn planner
+```
+
+Task có thể hiện:
+
+```text
+Check inventory for X
+```
+
+TaskType:
+
+```text
+UPDATE_INVENTORY
+```
+
+Nhưng homepage chính có thể chỉ show:
+
+```text
+Inventory data needed
+```
+
+---
+
+# 46. Inventory freshness
+
+Mỗi entry có:
+
+```text
+updated_at
+```
+
+V1 không tự invalidate.
+
+Nhưng UI có thể hiển thị:
+
+```text
+Last updated 6 days ago
+```
+
+Sau này có threshold:
+
+```text
+STALE
+```
+
+---
+
+# 47. No automatic inventory subtraction
+
+Khi planner đề xuất:
+
+```text
+Upgrade Talent
+```
+
+và user làm ngoài game:
+
+App không tự trừ:
+
+```text
+Mora
+Books
+```
+
+vì app không biết user thực sự đã làm hay chưa.
+
+Inventory chỉ thay đổi khi:
+
+```text
+user chỉnh tay
+```
+
+hoặc sau này có scanner.
+
+---
+
+# 48. Snapshot import không reset inventory
+
+GOOD import mới:
+
+```text
+Inventory remains
+```
+
+vì GOOD hiện không chứa material inventory.
+
+User có thể update inventory riêng.
+
+---
+
+# 49. Account diff có thể infer consumption sau này
+
+Optional future:
+
+Nếu snapshot cho biết:
+
+```text
+Talent 8 → 9
+```
+
+backend có thể suy ra:
+
+```text
+resources were consumed
+```
+
+và tự subtract theo GameData.
+
+Nhưng v1 **không nên làm**.
+
+Nguy cơ inventory drift cao.
+
+---
+
+# 50. Cost Engine service interface
+
+```python
+class CostEngine:
+
+    def resolve_goal(
+        self,
+        goal: UpgradeGoal,
+        inventory: InventoryState,
+        game_data: GameDataRepository,
+    ) -> ResolvedGoalCost:
+        ...
+
+    def resolve_plan(
+        self,
+        goals: list[UpgradeGoal],
+        inventory: InventoryState,
+    ) -> PlanCostResolution:
+        ...
+```
+
+---
+
+# 51. ResolvedGoalCost
+
+```python
+class ResolvedGoalCost:
+    goal_id: str
+
+    required: dict[str, int]
+
+    owned: dict[str, int | None]
+
+    missing: dict[str, int | None]
+
+    craft_plan: list[CraftInstruction]
+
+    status: CostStatus
+
+    efficiency: float
+
+    max_affordable_progress: Any | None
+```
+
+---
+
+# 52. PlanCostResolution
+
+```python
+class PlanCostResolution:
+    goals: dict[str, ResolvedGoalCost]
+
+    reservations: dict[str, dict[str, int]]
+
+    shared_needs: dict[str, int]
+```
+
+---
+
+# 53. Task types
+
+```python
+class TaskType(Enum):
+    UPGRADE_NOW
+    FARM_TALENT_DOMAIN
+    FARM_WEAPON_DOMAIN
+    FARM_ARTIFACT_DOMAIN
+    FARM_BOSS
+    FARM_WEEKLY_BOSS
+    FARM_MORA_LEYLINE
+    FARM_EXP_LEYLINE
+    COLLECT_OPEN_WORLD
+    CRAFT
+    UPDATE_INVENTORY
+    BLOCKED_RESOURCE
+```
+
+---
+
+# 54. Craft task
+
+Nếu material đủ dưới dạng lower tier:
+
+Không nhất thiết cần task farm.
+
+Có thể tạo:
+
+```text
+CRAFT
+```
+
+Ví dụ:
+
+```text
+Craft 9 Guides → 3 Philosophies
+```
+
+sau đó:
+
+```text
+Upgrade Talent
+```
+
+---
+
+# 55. Craft task ranking
+
+Crafting không dùng resin.
+
+Nó là:
+
+```text
+Quick Fix
+```
+
+nên có thể nằm đầu Today Plan:
+
+```text
+1. Craft materials
+2. Upgrade Talent
+3. Farm Domain
+```
+
+Nhưng frontend có thể nhóm:
+
+```text
+Quick Actions
+```
+
+riêng.
+
+---
+
+# 56. Quick Actions
+
+Các task không tốn farm đáng kể:
+
+```text
+CRAFT
+FREE_FIX
+UPGRADE_NOW
+```
+
+có thể được UI hiện riêng:
+
+```text
+QUICK ACTIONS
+```
+
+và:
+
+```text
+FARMING PLAN
+```
+
+Điều này dễ dùng hơn một list trộn lẫn.
+
+---
+
+# 57. Today Plan structure
+
+Response:
+
+```json
+{
+  "quickActions": [],
+  "farming": [],
+  "unavailableToday": [],
+  "blocked": []
+}
+```
+
+---
+
+# 58. Domain task schema
+
+```python
+class FarmDomainTask:
+    domain_key: str
+
+    material_keys: list[str]
+
+    parent_goal_ids: list[str]
+
+    missing_amounts: dict[str, int]
+
+    available_today: bool
+
+    task_score: float
+```
+
+---
+
+# 59. Boss task schema
+
+```python
+class FarmBossTask:
+    boss_key: str
+
+    material_key: str
+
+    missing_amount: int
+
+    estimated_runs: int | None
+
+    estimated_resin: float | None
+```
+
+---
+
+# 60. Open-world task schema
+
+```python
+class OpenWorldTask:
+    material_key: str
+    missing_amount: int
+
+    region: str | None
+
+    parent_goal_ids: list[str]
+```
+
+Không cần route.
+
+---
+
+# 61. Material priority inside one goal
+
+Nếu một goal thiếu nhiều thứ:
+
+Planner không cần ưu tiên tuyệt đối resource nào trước nếu tất cả đều cần.
+
+Today Compiler chỉ lọc:
+
+```text
+cái nào làm được hôm nay
+```
+
+Ví dụ:
+
+```text
+Books domain closed
+Boss available
+Enemy drops available
+```
+
+Today:
+
+```text
+Farm Boss
+Collect Enemy Drops
+```
+
+Books nằm:
+
+```text
+Unavailable Today
+```
+
+---
+
+# 62. Weekly boss priority
+
+Nếu goal đang chờ weekly material:
+
+Weekly task nên được ưu tiên khá cao vì:
+
+```text
+weekly lockout
+```
+
+Có thể thêm scheduler bonus:
+
+```text
+WEEKLY_GATE_BONUS
+```
+
+nhỏ.
+
+Không đổi Global Goal score.
+
+---
+
+# 63. Sunday behavior
+
+Sunday nhiều domain cùng mở.
+
+Today Plan có thể nhiều lựa chọn hơn.
+
+Không cần automatic resin allocation.
+
+Chỉ ranking.
+
+---
+
+# 64. Resource contention
+
+Nếu cùng material phục vụ nhiều goal:
+
+Task score lấy:
+
+```text
+highest parent goal score
++
+batch bonus
+```
+
+Không sum toàn bộ score.
+
+---
+
+# 65. Material Batch Bonus
+
+Ví dụ:
+
+```text
+Goal A score 90
+Goal B score 70
+Goal C score 50
+```
+
+cùng Talent Book.
+
+Task:
+
+```text
+base = 90
+bonus =
+0.08 × 70
++
+0.04 × 50
+```
+
+Cap khoảng:
+
+```text
+10–15
+```
+
+Configurable.
+
+---
+
+# 66. Prevent farming too far ahead
+
+Task Compiler không nên farm cho:
+
+```text
+Goal rank #50
+```
+
+chỉ vì nó dùng cùng domain hôm nay.
+
+Batch bonus chỉ xét:
+
+```text
+planning horizon
+```
+
+---
+
+# 67. Current milestone vs final target
+
+Ví dụ Weapon:
+
+```text
+20 → 90
+```
+
+Cost rất lớn.
+
+Planner nên phân biệt:
+
+```text
+Final Target = 90
+Next Milestone = 40
+```
+
+Today Cost Resolver có thể tập trung:
+
+```text
+20 → 40
+```
+
+thay vì yêu cầu user nhập toàn bộ material 20→90 ngay.
+
+---
+
+# 68. Milestone Planning
+
+Config:
+
+```yaml
+cost_engine:
+  use_incremental_milestones: true
+```
+
+Global goal:
+
+```text
+Weapon 20 → 90
+```
+
+Today step:
+
+```text
+Prepare Weapon 20 → 40
+```
+
+Sau đó tiếp tục.
+
+Tôi khuyến nghị bật.
+
+---
+
+# 69. Talent milestone
+
+Talent:
+
+```text
+6 → 10
+```
+
+Today step:
+
+```text
+6 → 7
+```
+
+hoặc nếu đủ material:
+
+```text
+6 → 8
+```
+
+tới maximum affordable milestone.
+
+---
+
+# 70. Why milestone planning matters
+
+Nếu không:
+
+```text
+Skill 6 → 10
+```
+
+app có thể hiện:
+
+```text
+Thiếu 70 books
+```
+
+rất nặng và khó hành động.
+
+Milestone:
+
+```text
+Skill 6 → 7
+Need 3 books
+```
+
+thực tế hơn.
+
+---
+
+# 71. Cost estimate display
+
+Layer 1:
+
+```text
+Fischl
+Skill 8 → 9
+
+Need:
+4 more talent books
+```
+
+Layer 2:
+
+```text
+Required
+Owned
+Missing
+
+Mora          450k / 3.2m / 0
+Books         6 / 2 / 4
+Enemy         9 / 30 / 0
+Weekly        2 / 2 / 0
+```
+
+---
+
+# 72. Cost uncertainty
+
+Nếu inventory chưa nhập:
+
+```text
+Owned: ?
+Missing: ?
+```
+
+Không dùng:
+
+```text
+0
+```
+
+---
+
+# 73. API
+
+```text
+GET /api/inventory
+
+PUT /api/inventory
+
+GET /api/inventory/relevant
+
+GET /api/goals/{goalId}/cost
+
+GET /api/tasks/today
+```
+
+---
+
+# 74. Planner recalculation triggers
+
+Cost/Today Plan invalidate khi:
+
+```text
+inventory update
+GOOD import
+target update
+tier update
+Akasha update
+game data update
+server day changes
+```
+
+Global ranking không nhất thiết đổi mạnh khi inventory đổi, nhưng Efficiency có thể đổi nhẹ.
+
+---
+
+# 75. Caching
+
+Có thể cache:
+
+```text
+ResolvedCost
+```
+
+theo:
+
+```text
+goal_id
+inventory_version
+game_data_version
+```
+
+V1 không bắt buộc.
+
+---
+
+# 76. Inventory version
+
+```python
+class InventoryState:
+    version: int
+    entries: dict[str, InventoryEntry]
+```
+
+Mỗi bulk save:
+
+```text
+version + 1
+```
+
+---
+
+# 77. Error handling
+
+Nếu GameData không biết cost:
+
+```text
+COST_DATA_MISSING
+```
+
+Không invent cost.
+
+Planner goal vẫn tồn tại.
+
+Task Compiler có thể không compile được.
+
+---
+
+# 78. Material source missing
+
+Nếu material biết nhưng không biết source:
+
+```text
+SOURCE_UNKNOWN
+```
+
+Không đoán domain.
+
+---
+
+# 79. Cost Engine không quyết Tier
+
+Nó không biết:
+
+```text
+T0/T1/T2
+```
+
+Cost Engine chỉ tính:
+
+```text
+resource cost
+efficiency
+availability-related info
+```
+
+Planner mới quyết priority.
+
+---
+
+# 80. Cost Engine không quyết Artifact RV
+
+Artifact farming cost chỉ nhận:
+
+```text
+ArtifactGoal
+```
+
+từ Planner.
+
+Nó không đánh giá artifact mạnh/yếu.
+
+---
+
+# 81. Unit tests bắt buộc
+
+| Case                                      | Expected                        |
+| ----------------------------------------- | ------------------------------- |
+| Required 10, owned 10                     | missing 0                       |
+| Required 10, owned 3                      | missing 7                       |
+| Owned null                                | missing unknown                 |
+| Lower-tier materials craft đủ             | no farming needed               |
+| Crown missing                             | blocked non-farmable            |
+| Mora missing                              | Mora Ley Line task              |
+| Weekly material missing                   | Weekly Boss task                |
+| Inventory đủ bước 8→9 nhưng không đủ 8→10 | immediate 8→9                   |
+| Shared talent material                    | grouped task                    |
+| Two goals share 1 Crown                   | reservation prevents double-use |
+
+---
+
+# 82. Integration test
+
+Global Plan:
+
+```text
+#1 Fischl Skill 8 → 10
+#2 Character B Weapon 80 → 90
+```
+
+Inventory:
+
+```text
+Fischl resources:
+enough for 8→9
+
+Weapon:
+missing domain materials
+```
+
+Today:
+
+```text
+QUICK ACTIONS
+
+#1 Upgrade Fischl Skill 8 → 9
+
+
+FARMING
+
+#1 Farm Weapon Domain for Character B
+```
+
+After GOOD snapshot:
+
+```text
+Fischl Skill = 9
+```
+
+Planner recomputes:
+
+```text
+Fischl Skill 9 → 10
+```
+
+---
+
+# 83. Definition of Done
+
+Material Inventory + Cost Engine v1 hoàn thành khi:
+
+```text
+user có thể nhập material thủ công
+
+unknown khác zero
+
+crafting tiers được resolve
+
+Cost Engine tính required / owned / missing
+
+shared resource không bị double-count
+
+Planner biết upgrade nào đã đủ nguyên liệu
+
+Planner biết upgrade nào cần farm
+
+missing resource resolve thành đúng source
+
+Today Plan có:
+Quick Actions
+Farming
+Unavailable
+Blocked
+
+Planner không overfarm
+
+Planner hỗ trợ milestone progression
+```
+
+---
+
+# 84. Nguyên tắc cuối cùng
+
+Planner nói:
+
+> Cái gì đáng nâng?
+
+Game Data nói:
+
+> Nâng nó cần gì?
+
+Inventory nói:
+
+> Tôi đang có gì?
+
+Cost Engine nói:
+
+> Tôi còn thiếu gì?
+
+Task Compiler nói:
+
+> Vậy hôm nay tôi phải làm gì?
+
+Các lớp này phải tách biệt để hệ thống dễ debug và dễ mở rộng.

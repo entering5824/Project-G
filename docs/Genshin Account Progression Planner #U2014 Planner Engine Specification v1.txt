@@ -1,0 +1,2355 @@
+# Genshin Account Progression Planner — Planner Engine Specification v1
+
+## 1. Trách nhiệm của Planner Engine
+
+Planner Engine nhận toàn bộ trạng thái account và trả lời:
+
+> Trong tất cả những việc có thể làm cho toàn account, việc nào đáng làm trước, việc nào sau?
+
+Planner phải so sánh được trực tiếp:
+
+```text
+Level character A
+vs
+Ascend character B
+vs
+Talent character C
+vs
+Weapon character D
+vs
+Artifact character E
+```
+
+Planner **không tối ưu rotation**, **không quản lý kho artifact**, **không chọn từng artifact để thay**, và **không lập kế hoạch Primogem**.
+
+### Input
+
+```text
+AccountState
+CharacterTargets
+TierConfig
+TeamData
+MaterialInventory
+AkashaEvaluations
+GameData
+DomainSchedule
+UserOverrides
+PreviousPlan
+```
+
+### Output
+
+```text
+PlannerResult
+├── GlobalPlan
+├── TodayPlan
+├── CharacterProgress
+├── Explanations
+└── UnresolvedProblems
+```
+
+---
+
+# 2. Kiến trúc Planner
+
+Planner chia thành hai tầng:
+
+```text
+BUILD GOAL ENGINE
+       ↓
+xác định account cần cải thiện cái gì
+
+TASK ENGINE
+       ↓
+xác định hiện tại phải làm gì để đạt improvement đó
+```
+
+Ví dụ:
+
+```text
+Build Goal:
+Fischl Skill 8 → 10
+
+Material check:
+thiếu talent book
+
+Executable Task:
+Farm talent books cho Fischl
+```
+
+Nếu inventory đã đủ:
+
+```text
+Build Goal:
+Fischl Skill 8 → 10
+
+Material check:
+đã đủ
+
+Executable Task:
+Nâng Skill Fischl 8 → 10
+```
+
+Artifact khác một chút:
+
+```text
+Build Goal:
+Lauma artifact quality → GOOD
+
+Executable Task:
+Farm Domain X
+```
+
+---
+
+# 3. Core entities
+
+## 3.1 `UpgradeGoal`
+
+```python
+class UpgradeGoal:
+    id: str
+
+    character_key: str
+
+    type: GoalType
+
+    current_value: Any
+    target_value: Any
+
+    importance: float
+
+    deficiency: float
+    impact: float
+    tier_value: float
+    team_value: float
+    completion_value: float
+
+    global_score: float
+
+    confidence: float
+
+    dependencies: list[str]
+
+    status: GoalStatus
+```
+
+`GoalType`:
+
+```text
+CHARACTER_LEVEL
+CHARACTER_ASCENSION
+
+TALENT_AUTO
+TALENT_SKILL
+TALENT_BURST
+
+WEAPON_PROGRESS
+
+ARTIFACT_QUALITY
+```
+
+---
+
+# 4. Không generate action cho những thứ target không yêu cầu
+
+Đây là nguyên tắc bắt buộc.
+
+Ví dụ target Bennett:
+
+```yaml
+talents:
+  auto:
+    target: 1
+    importance: 0
+
+  skill:
+    target: 8
+    importance: 0.5
+
+  burst:
+    target: 10
+    importance: 1.0
+```
+
+State:
+
+```text
+1 / 8 / 10
+```
+
+Planner:
+
+```text
+Bennett talent status = COMPLETE
+```
+
+Tuyệt đối không generate:
+
+```text
+Normal Attack 1 → 10
+```
+
+chỉ vì level chưa max.
+
+---
+
+# 5. Character Target Schema
+
+Mỗi character có config riêng.
+
+```yaml
+Fischl:
+
+  level:
+    target: 90
+    importance: 0.85
+
+  ascension:
+    target: 6
+    importance: 0.90
+
+  talents:
+
+    auto:
+      target: 1
+      importance: 0
+
+    skill:
+      target: 10
+      importance: 1.0
+
+    burst:
+      target: 6
+      importance: 0.25
+
+  weapon:
+    target_level: 90
+    importance: 0.90
+
+  artifact:
+    enabled: true
+    target_quality: GOOD
+    importance: 0.85
+
+  artifact_gate:
+    min_level: 80
+    min_ascension: 5
+```
+
+`importance` nằm trong:
+
+```text
+0.0 → 1.0
+```
+
+Nó biểu diễn:
+
+> Thành phần này quan trọng đến mức nào đối với build của character này?
+
+---
+
+# 6. Tier không phải Completion
+
+Hai hệ thống hoàn toàn độc lập.
+
+```text
+Tier
+= Character này đáng được ưu tiên sớm đến đâu.
+
+Completion
+= Character này đã đạt target cá nhân chưa.
+```
+
+Một character T3 vẫn phải được build.
+
+Nó chỉ bị xếp sau character T0 nếu các yếu tố khác tương đương.
+
+Ví dụ:
+
+```yaml
+T0:   1.00
+T0_5: 0.92
+T1:   0.84
+T1_5: 0.75
+T2:   0.65
+T3:   0.52
+```
+
+Không nên để:
+
+```text
+T3 = 0.1
+```
+
+vì sẽ gây starvation.
+
+---
+
+# 7. Gap Detection
+
+Cho từng component:
+
+```text
+Target
+-
+Current State
+=
+Gap
+```
+
+Nếu:
+
+```text
+current >= target
+```
+
+thì:
+
+```text
+gap = 0
+```
+
+và không generate goal.
+
+---
+
+# 8. Deficiency Score
+
+`Deficiency` trả lời:
+
+> Character đang cách target bao xa ở component này?
+
+Giá trị:
+
+```text
+0.0 → hoàn thành
+1.0 → cực kỳ thiếu
+```
+
+## Character level
+
+Không dùng đơn giản:
+
+```text
+current / 90
+```
+
+Thay vào đó dùng milestone ladder:
+
+```text
+1
+20
+40
+50
+60
+70
+80
+90
+```
+
+Ví dụ:
+
+```text
+80 → 90
+```
+
+chỉ còn một milestone.
+
+Trong khi:
+
+```text
+20 → 90
+```
+
+còn rất nhiều.
+
+Có thể implement:
+
+```python
+def milestone_deficiency(current, target, milestones):
+    valid = [x for x in milestones if x <= target]
+
+    current_index = largest_reached_index(current)
+    target_index = index(target)
+
+    return (
+        target_index - current_index
+    ) / max(target_index, 1)
+```
+
+---
+
+# 9. Talent Deficiency
+
+Ví dụ:
+
+```text
+current = 6
+target = 10
+```
+
+```python
+D = (target - current) / (target - 1)
+```
+
+Nhưng target thấp phải xử lý tương ứng.
+
+Ví dụ:
+
+```text
+8 → 10
+```
+
+deficiency nhỏ hơn rất nhiều so với:
+
+```text
+1 → 10
+```
+
+---
+
+# 10. Weapon Deficiency
+
+Dùng milestone:
+
+```text
+1
+20
+40
+50
+60
+70
+80
+90
+```
+
+Do đó:
+
+```text
+Weapon 20 → 90
+```
+
+có deficiency rất lớn.
+
+Đây là cách planner nhận ra:
+
+> Character đã Lv90 nhưng weapon Lv20 là bottleneck nghiêm trọng.
+
+---
+
+# 11. Artifact Deficiency
+
+Artifact không tự suy luận từ GOOD.
+
+Nguồn chính là:
+
+```text
+AkashaEvaluation
+```
+
+Adapter Akasha phải convert raw data thành:
+
+```python
+artifact_quality_score: float
+```
+
+trong:
+
+```text
+0 → 1
+```
+
+Ví dụ sau này có thể map:
+
+```text
+VERY_BAD    0.20
+BAD         0.40
+ACCEPTABLE  0.60
+GOOD        0.80
+EXCELLENT   1.00
+```
+
+Nhưng mapping phải nằm trong config.
+
+Không hardcode trong Planner.
+
+Formula:
+
+```python
+D_artifact = max(
+    0,
+    (target_quality - current_quality)
+    / target_quality
+)
+```
+
+Nếu chưa có Akasha:
+
+```text
+artifact state = UNKNOWN
+```
+
+không phải:
+
+```text
+artifact state = BAD
+```
+
+Planner không được tự generate artifact farm dựa trên dữ liệu không tồn tại.
+
+---
+
+# 12. Artifact Gate
+
+Planner không nên bảo farm artifact cho character Lv20.
+
+Artifact goal chỉ được activate nếu thỏa:
+
+```yaml
+artifact_gate:
+  min_level: 80
+  min_ascension: 5
+```
+
+Có thể thêm:
+
+```yaml
+required_talents:
+  skill: 6
+```
+
+Nếu chưa đạt:
+
+```text
+ArtifactGoal = BLOCKED
+```
+
+Nó vẫn tồn tại trong build graph nhưng không vào queue hiện tại.
+
+---
+
+# 13. Impact Score
+
+`Impact` khác `Deficiency`.
+
+Deficiency:
+
+> đang thiếu bao nhiêu?
+
+Impact:
+
+> component đó quan trọng đến đâu?
+
+Impact lấy từ character target:
+
+```text
+target.importance
+```
+
+Ví dụ:
+
+```text
+Fischl Skill
+importance = 1.0
+
+Fischl Burst
+importance = 0.25
+```
+
+Do đó dù:
+
+```text
+Burst 1 → 6
+```
+
+deficiency lớn,
+
+nó vẫn có thể đứng dưới:
+
+```text
+Skill 8 → 10
+```
+
+vì Skill có impact cao hơn nhiều.
+
+---
+
+# 14. Team Value
+
+Planner xét:
+
+```text
+Saved Teams
+Generated Teams
+No Team
+```
+
+Default:
+
+```text
+Saved team member     1.00
+Generated useful team 0.75
+No known team         0.50
+```
+
+Nếu character xuất hiện trong nhiều saved team:
+
+```python
+team_value = min(
+    1.0,
+    0.85 + saved_team_count * 0.05
+)
+```
+
+Không cộng vô hạn.
+
+---
+
+# 15. Completion Value
+
+Planner phải biết giá trị của việc **finish một build gần hoàn chỉnh**.
+
+Ví dụ:
+
+```text
+Character A
+
+Level      complete
+Weapon     complete
+Artifact   complete
+Skill      8 / 9
+```
+
+Skill 8→9 nên được bonus vì nó biến character:
+
+```text
+NEAR_COMPLETE
+→
+COMPLETE
+```
+
+### Component completion
+
+Action hoàn thành một component:
+
+```text
++ nhỏ
+```
+
+### Character completion
+
+Action hoàn thành toàn character:
+
+```text
++ lớn
+```
+
+Có thể normalize:
+
+```text
+normal action             0.0
+finishes component        0.35
+character near completion 0.60
+finishes character        1.00
+```
+
+---
+
+# 16. Base Priority Formula
+
+Planner v1 sử dụng weighted additive scoring.
+
+```text
+D = Deficiency
+I = Impact
+T = Tier Value
+U = Team Usage
+C = Completion Value
+```
+
+Formula mặc định:
+
+```text
+BasePriority =
+    0.32 × D
+  + 0.28 × I
+  + 0.18 × T
+  + 0.12 × U
+  + 0.10 × C
+```
+
+Sau đó:
+
+```text
+BaseScore = BasePriority × 100
+```
+
+Tất cả weight phải nằm trong:
+
+```yaml
+planner.yaml
+```
+
+Không hardcode.
+
+---
+
+# 17. Tại sao không dùng phép nhân toàn bộ
+
+Không dùng:
+
+```text
+D × I × T × U × ...
+```
+
+Vì chỉ cần:
+
+```text
+team_value thấp
+```
+
+là score collapse.
+
+Ví dụ character chưa nằm trong team vẫn phải được build về lâu dài.
+
+Weighted sum ổn định hơn.
+
+---
+
+# 18. Cost không nằm trực tiếp trong BasePriority
+
+Nếu cho chi phí weight quá lớn:
+
+```text
+talent 9 → 10
+```
+
+có thể luôn thua các upgrade rẻ dù quan trọng.
+
+Do đó Cost chỉ dùng như **modifier nhẹ**.
+
+```text
+Efficiency ∈ 0 → 1
+```
+
+Final:
+
+```text
+Score =
+BaseScore
+× EfficiencyModifier
+× Confidence
+× ManualOverride
+```
+
+Trong đó:
+
+```text
+EfficiencyModifier =
+0.85 + 0.15 × Efficiency
+```
+
+Như vậy cost chỉ ảnh hưởng tối đa khoảng 15%.
+
+Nó không phá mục tiêu build account.
+
+---
+
+# 19. Cost Engine
+
+Cost Engine tính **phần còn thiếu**, không phải tổng cost.
+
+```text
+Required
+-
+Inventory
+=
+Missing
+```
+
+Ví dụ:
+
+```text
+Required:
+9 talent books
+
+Inventory:
+7
+
+Missing:
+2
+```
+
+Planner chỉ tính cost farm 2.
+
+---
+
+# 20. Unknown khác Zero
+
+Bắt buộc:
+
+```text
+inventory = null
+```
+
+nghĩa là:
+
+> người dùng chưa nhập.
+
+Trong khi:
+
+```text
+inventory = 0
+```
+
+nghĩa là:
+
+> chắc chắn không có.
+
+Không bao giờ convert:
+
+```text
+null → 0
+```
+
+---
+
+# 21. Resource Cost Model
+
+Có thể convert thành abstract `cost_units`.
+
+```text
+Resin-gated materials
+Mora
+Character EXP
+Weapon EXP
+Open-world farm
+Weekly lockout
+RNG
+```
+
+Không cần giả vờ tất cả đều chính xác.
+
+Ví dụ:
+
+```python
+class CostEstimate:
+    deterministic_resin: float | None
+    open_world_minutes: float | None
+    weekly_gate: bool
+    rng_level: float | None
+```
+
+---
+
+# 22. Efficiency Score
+
+Không cần cực kỳ chính xác ở v1.
+
+Config dạng bucket là đủ:
+
+```text
+VERY_CHEAP  1.00
+CHEAP       0.90
+NORMAL      0.75
+EXPENSIVE   0.55
+VERY_HIGH   0.35
+```
+
+Artifact farming:
+
+```text
+RNG dependent
+```
+
+nên Efficiency thấp hơn guaranteed upgrade nếu các yếu tố khác tương đương.
+
+Điều này tự nhiên tạo:
+
+```text
+guaranteed upgrades trước
+artifact farming sau
+```
+
+nhưng artifact cực tệ vẫn có thể thắng.
+
+---
+
+# 23. Confidence
+
+Dữ liệu chắc chắn:
+
+```text
+GOOD data        1.00
+Confirmed input  1.00
+```
+
+Akasha image OCR:
+
+```text
+confidence < threshold
+```
+
+thì:
+
+```text
+NEEDS_CONFIRMATION
+```
+
+và chưa được dùng để quyết định plan.
+
+Sau khi user confirm:
+
+```text
+confidence = 1
+```
+
+Planner không nên đưa recommendation mạnh từ OCR mơ hồ.
+
+---
+
+# 24. Manual Override
+
+Default:
+
+```text
+NORMAL = 1.00
+```
+
+Pin:
+
+```text
+PRIORITIZED = 1.15
+```
+
+Nếu sau này cần:
+
+```text
+DEPRIORITIZED = 0.85
+```
+
+Không dùng:
+
+```text
+priority = infinity
+```
+
+Pin chỉ ảnh hưởng, không phá logic.
+
+---
+
+# 25. Final Global Score
+
+```python
+base = (
+    0.32 * deficiency
+    + 0.28 * impact
+    + 0.18 * tier
+    + 0.12 * team
+    + 0.10 * completion
+)
+
+base_score = base * 100
+
+efficiency_modifier = 0.85 + 0.15 * efficiency
+
+score = (
+    base_score
+    * efficiency_modifier
+    * confidence
+    * priority_override
+)
+```
+
+Sau cùng:
+
+```python
+score = clamp(score, 0, 100)
+```
+
+Nếu override có thể vượt 100 thì clamp.
+
+---
+
+# 26. Dependency Graph
+
+Một số goal phụ thuộc goal khác.
+
+Ví dụ:
+
+```text
+Character Ascension
+       ↓
+Level 80 → 90
+```
+
+Hoặc:
+
+```text
+Ascension
+   ↓
+Talent 8 → 9
+```
+
+Planner xây DAG.
+
+```python
+Goal:
+    dependencies: list[goal_id]
+```
+
+Goal chưa đủ prerequisite:
+
+```text
+status = BLOCKED
+```
+
+Không được xuất hiện như task có thể làm ngay.
+
+---
+
+# 27. Actionable Frontier
+
+Giả sử:
+
+```text
+Ascend Fischl
+    ↓
+Level Fischl 80 → 90
+    ↓
+Talent 8 → 10
+```
+
+Planner chỉ đưa:
+
+```text
+Ascend Fischl
+```
+
+vào actionable queue nếu hai bước sau đang bị block.
+
+Sau khi snapshot mới xác nhận ascension hoàn tất:
+
+```text
+Level 80 → 90
+```
+
+được activate.
+
+Điều này ngăn planner hiển thị ba action thực tế chưa thể làm cùng lúc.
+
+---
+
+# 28. Weapon Progression
+
+Weapon nên được coi là một Goal:
+
+```text
+Weapon Lv20 → Lv90
+```
+
+không cần homepage hiện:
+
+```text
+20→40
+40→50
+50→60
+...
+```
+
+Bên trong Cost Engine có thể chia milestone.
+
+UI:
+
+```text
+Skyward Atlas
+20 → 90
+```
+
+Detail:
+
+```text
+Next milestone:
+20 → 40
+
+Final target:
+90
+```
+
+---
+
+# 29. Free Equipment Fix
+
+Weapon có thể được chuyển giữa character.
+
+Nếu một weapon hợp lệ đã tồn tại và chỉ cần chuyển:
+
+```text
+không generate farm/upgrade weapon ngay
+```
+
+Thay vào đó:
+
+```text
+FREE_FIX
+```
+
+Ví dụ:
+
+```text
+Move Weapon X from A → B
+```
+
+Nhưng loại này nên nằm riêng:
+
+```text
+Quick fixes
+```
+
+không cạnh tranh trực tiếp với Resin progression.
+
+Artifact không có cơ chế này.
+
+---
+
+# 30. Artifact Farming Goal
+
+Một artifact goal có dạng:
+
+```python
+ArtifactGoal(
+    character="Lauma",
+    current_quality=0.52,
+    target_quality=0.80,
+    domain="...",
+)
+```
+
+Planner không quan tâm:
+
+```text
+artifact nào trong bag
+artifact nào nên feed
+artifact nào swap
+```
+
+---
+
+# 31. Weak Slot Detection
+
+Akasha có thể cung cấp:
+
+```text
+Flower RV
+Plume RV
+Sands RV
+Goblet RV
+Circlet RV
+```
+
+Planner dùng nó **chỉ để giải thích**.
+
+Ví dụ:
+
+```text
+Farm artifacts for Lauma
+
+Reason:
+Overall artifact quality below target.
+
+Weakest:
+Goblet
+Sands
+```
+
+Nó không generate:
+
+```text
+Replace Goblet
+```
+
+---
+
+# 32. Domain Synergy
+
+Artifact domain có thể phục vụ nhiều character.
+
+Ví dụ:
+
+```text
+Domain X
+
+Lauma      score 88
+Nefer      score 71
+Character C score 65
+```
+
+Không cộng tất cả trực tiếp vì domain đông character sẽ overpower mọi thứ.
+
+Dùng diminishing bonus:
+
+```text
+BatchBonus =
+  0.10 × second_highest_score
++ 0.05 × third_highest_score
++ 0.025 × remaining_scores
+```
+
+Cap:
+
+```text
+BatchBonus <= 15
+```
+
+Domain Task:
+
+```text
+TaskScore =
+highest_goal_score
++
+BatchBonus
+```
+
+rồi clamp 100.
+
+---
+
+# 33. Domain synergy áp dụng cả Talent/Weapon
+
+Không chỉ artifact.
+
+Ví dụ cùng một talent domain hôm nay phục vụ:
+
+```text
+Character A
+Character B
+Character C
+```
+
+Planner có thể nói:
+
+```text
+Farm Talent Domain X
+```
+
+và detail:
+
+```text
+Advances:
+A
+B
+C
+```
+
+---
+
+# 34. Global Plan vs Today Plan
+
+## Global Plan
+
+Không quan tâm domain mở hôm nay không.
+
+```text
+#1 A
+#2 B
+#3 C
+```
+
+Đây là chiến lược account.
+
+## Today Plan
+
+Compile từ Global Plan:
+
+```text
+Global Goal
+↓
+Dependency
+↓
+Material missing
+↓
+Domain availability
+↓
+Executable Task
+```
+
+---
+
+# 35. Task Compiler
+
+Ví dụ:
+
+```text
+Goal:
+Bennett Burst 8 → 10
+```
+
+Case A:
+
+```text
+đã đủ tất cả material
+```
+
+Task:
+
+```text
+UPGRADE_NOW
+Bennett Burst 8 → 10
+```
+
+Case B:
+
+```text
+thiếu talent books
+domain mở hôm nay
+```
+
+Task:
+
+```text
+FARM_DOMAIN
+Talent books for Bennett
+```
+
+Case C:
+
+```text
+domain đóng
+```
+
+Không vào Today Plan.
+
+Detail:
+
+```text
+Available Thursday
+```
+
+---
+
+# 36. Today Task Types
+
+```text
+UPGRADE_NOW
+FARM_TALENT_DOMAIN
+FARM_WEAPON_DOMAIN
+FARM_ARTIFACT_DOMAIN
+FARM_BOSS
+FARM_LEYLINE
+COLLECT_OPEN_WORLD
+WEEKLY_BOSS
+FREE_FIX
+```
+
+Planner UI có thể dùng icon khác nhau.
+
+---
+
+# 37. Domain Availability
+
+Global score không bị giảm vì domain đóng.
+
+Ví dụ:
+
+```text
+Global Priority = 95
+```
+
+vẫn là 95.
+
+Today:
+
+```text
+available = false
+```
+
+thì không vào executable queue.
+
+Không làm:
+
+```text
+95 → 30
+```
+
+chỉ vì hôm nay domain đóng.
+
+---
+
+# 38. Today Task Score
+
+Base:
+
+```text
+highest underlying goal score
+```
+
+Sau đó thêm:
+
+```text
+batch bonus
+```
+
+Có thể thêm rất nhỏ:
+
+```text
+ready_now bonus
+```
+
+nếu đã có gần đủ material.
+
+Ví dụ:
+
+```text
+TaskScore =
+GoalScore
++ BatchBonus
++ ReadyBonus
+```
+
+`ReadyBonus` tối đa khoảng:
+
+```text
+3–5 điểm
+```
+
+không đủ phá global priorities lớn.
+
+---
+
+# 39. Không lập Resin Budget
+
+V1 không trả lời:
+
+> dùng chính xác 120 Resin vào đâu.
+
+Nó chỉ trả lời:
+
+```text
+Thứ tự ưu tiên hôm nay:
+1
+2
+3
+4
+```
+
+User tự quyết chơi bao lâu / dùng bao nhiêu resin.
+
+Đây là đúng scope sản phẩm.
+
+---
+
+# 40. Multi-Step Global Plan
+
+Không chỉ sort current actions một lần.
+
+Planner phải có **iterative simulation**.
+
+Algorithm:
+
+```python
+state = clone(account)
+
+plan = []
+
+for i in range(MAX_PLAN_LENGTH):
+
+    goals = generate_goals(state)
+
+    actionable = resolve_dependencies(goals)
+
+    scored = score(actionable)
+
+    best = choose_best(scored)
+
+    plan.append(best)
+
+    simulate_completion(state, best)
+```
+
+Sau khi giả lập action #1 hoàn thành:
+
+```text
+planner tính lại score
+```
+
+rồi mới chọn #2.
+
+Điều này quan trọng.
+
+---
+
+# 41. Vì sao phải simulation
+
+Giả sử:
+
+```text
+Fischl:
+Ascension thiếu
+
+Skill cũng thiếu
+```
+
+Ban đầu:
+
+```text
+Ascension #1
+Skill BLOCKED
+```
+
+Sau khi simulation:
+
+```text
+Ascension COMPLETE
+```
+
+Skill mới được activate.
+
+Plan có thể thành:
+
+```text
+#1 Ascend Fischl
+#2 Upgrade Yae weapon
+#3 Fischl Skill
+```
+
+thay vì sort một list tĩnh sai logic.
+
+---
+
+# 42. Planning Horizon
+
+Không cần generate 500 bước.
+
+Default:
+
+```yaml
+global_plan_length: 20
+today_plan_length: 10
+```
+
+Frontend có thể chỉ show top 5 trước.
+
+---
+
+# 43. Stable Ranking / Anti-Jitter
+
+Nếu:
+
+```text
+Action A = 82.4
+Action B = 82.1
+```
+
+không nên mỗi lần import nhỏ là A/B đổi liên tục.
+
+Dùng hysteresis.
+
+Nếu score difference:
+
+```text
+< 3 điểm
+```
+
+giữ relative order từ previous plan nếu cả hai vẫn hợp lệ.
+
+Config:
+
+```yaml
+ranking:
+  reorder_threshold: 3.0
+```
+
+Điều này làm app có cảm giác ổn định.
+
+---
+
+# 44. Planner không được bị artifact loop
+
+Artifact là RNG vô hạn.
+
+Nếu không có target rõ:
+
+```text
+planner sẽ farm artifact mãi.
+```
+
+Bắt buộc artifact có:
+
+```text
+target_quality
+```
+
+Khi đạt target:
+
+```text
+artifact goal = COMPLETE
+```
+
+Dù artifact chưa hoàn hảo.
+
+Mục tiêu là:
+
+> build đủ tốt tất cả character,
+
+không phải:
+
+> farm một DPS đến top 0.1%.
+
+---
+
+# 45. Artifact diminishing urgency
+
+Khi rất xa target:
+
+```text
+Deficiency cao
+```
+
+Khi gần target:
+
+```text
+Deficiency giảm mạnh
+```
+
+Ví dụ:
+
+```text
+Target 0.80
+
+Current 0.30 → urgent
+Current 0.55 → meaningful
+Current 0.75 → minor
+Current 0.80 → complete
+```
+
+Nhờ vậy deterministic upgrade của character khác bắt đầu vượt lên.
+
+---
+
+# 46. Missing Configuration
+
+Nếu character mới chưa có target:
+
+Planner **không tự đoán**.
+
+```text
+status:
+TARGET_MISSING
+```
+
+Character đó xuất hiện trong:
+
+```text
+UnresolvedProblems
+```
+
+Ví dụ:
+
+```text
+Nefer:
+No character target configured.
+```
+
+Không được làm sai silently.
+
+---
+
+# 47. Missing Tier
+
+Tương tự:
+
+```text
+TIER_UNKNOWN
+```
+
+Có thể dùng neutral fallback:
+
+```text
+0.70
+```
+
+nhưng phải báo:
+
+```text
+tier_source = fallback
+```
+
+Tôi nghiêng về fallback để planner vẫn chạy.
+
+---
+
+# 48. Missing Akasha
+
+Nếu artifact target enabled nhưng chưa upload Akasha:
+
+```text
+ARTIFACT_UNKNOWN
+```
+
+Character không được mark COMPLETE.
+
+Nhưng artifact goal cũng không được giả định BAD.
+
+Ví dụ status:
+
+```text
+BUILDABLE_DATA_COMPLETE = false
+```
+
+---
+
+# 49. Character Completion Score
+
+Dùng component importance để tính.
+
+Ví dụ:
+
+```text
+Level        importance .8
+Ascension    .9
+Skill        1.0
+Weapon       .9
+Artifact     .8
+```
+
+Completion:
+
+```text
+sum(
+  component_progress × component_importance
+)
+/
+sum(component_importance)
+```
+
+Do đó:
+
+```text
+useless talent
+importance = 0
+```
+
+không ảnh hưởng completion.
+
+---
+
+# 50. Character Status
+
+Ví dụ:
+
+```text
+< 25%     UNBUILT
+25–75%    BUILDING
+75–99%    NEAR_COMPLETE
+100%      COMPLETE
+```
+
+Threshold config được.
+
+`COMPLETE` phải yêu cầu:
+
+```text
+mọi required component known
+```
+
+Nếu artifact unknown:
+
+```text
+NEEDS_DATA
+```
+
+không được COMPLETE.
+
+---
+
+# 51. Account Completion
+
+Tính từ toàn bộ owned characters.
+
+Không weight theo tier.
+
+Vì mục tiêu cuối:
+
+```text
+build ALL.
+```
+
+Nếu weight tier ở đây thì hoàn thành T0 sẽ làm progress tăng quá mạnh.
+
+Account completion nên phản ánh:
+
+> bao nhiêu phần của toàn bộ dự án account đã xong.
+
+Tier chỉ dùng ranking.
+
+---
+
+# 52. Anti-Starvation
+
+Không cần artificial fairness quá mạnh.
+
+Vì khi character tier cao COMPLETE:
+
+```text
+goal biến mất
+```
+
+character tier thấp tự động đi lên.
+
+Nhưng cần bảo đảm:
+
+```text
+tier weight không chiếm quá nhiều score.
+```
+
+18% hiện tại là hợp lý cho v1.
+
+Không dùng:
+
+```text
+T0 ×2
+T3 ×0.2
+```
+
+---
+
+# 53. Anti-Weird Guardrails
+
+Planner bắt buộc tuân theo:
+
+```text
+Không recommend talent ngoài target.
+
+Không recommend artifact trước artifact gate.
+
+Không recommend task cần prerequisite chưa hoàn thành.
+
+Không recommend farm material nếu inventory đã đủ.
+
+Không coi unknown inventory = zero.
+
+Không coi missing Akasha = bad artifact.
+
+Không đổi Global Priority vì domain đóng hôm nay.
+
+Không để artifact farming tiếp tục sau target.
+
+Không tạo duplicate tasks cho cùng material/domain.
+
+Không để pin override phá dependency.
+
+Không mark COMPLETE nếu required data đang unknown.
+
+Không sử dụng OCR chưa confirm nếu confidence thấp.
+```
+
+---
+
+# 54. Reason Codes
+
+Planner không nên lưu giải thích dạng text duy nhất.
+
+Backend trả structured reasons:
+
+```json
+{
+  "code": "WEAPON_FAR_BELOW_TARGET",
+  "weight": 0.32,
+  "value": 0.91
+}
+```
+
+Ví dụ reason codes:
+
+```text
+HIGH_DEFICIENCY
+HIGH_IMPACT_COMPONENT
+HIGH_TIER_CHARACTER
+SAVED_TEAM_MEMBER
+NEAR_CHARACTER_COMPLETION
+CHEAP_GUARANTEED_UPGRADE
+WEAPON_FAR_BELOW_TARGET
+ARTIFACT_BELOW_TARGET
+DOMAIN_MULTI_CHARACTER_VALUE
+MATERIALS_ALREADY_AVAILABLE
+MANUAL_PRIORITY_OVERRIDE
+```
+
+Frontend render thành Vietnamese/English sau.
+
+---
+
+# 55. Explanation Layer 1
+
+Homepage:
+
+```text
+Yae Miko
+
+Upgrade Weapon
+Skyward Atlas 20 → 90
+
+Priority 94
+
+Largest current bottleneck.
+```
+
+Không show formula.
+
+---
+
+# 56. Explanation Layer 2
+
+Click vào:
+
+```text
+WHY THIS?
+
+Weapon deficiency     96%
+Upgrade importance    90%
+Character tier        T1
+Team relevance        High
+Resource efficiency   High
+
+Why it ranks here:
+• weapon is far below target
+• deterministic progression
+• character is already highly developed
+• completing weapon removes a major bottleneck
+```
+
+Có thể show raw score breakdown cho debug mode.
+
+---
+
+# 57. Debug Mode
+
+Rất nên có vì project cá nhân.
+
+```text
+Settings
+→ Developer Mode
+```
+
+Khi bật:
+
+```text
+Base Score
+Deficiency
+Impact
+Tier
+Team
+Completion
+Efficiency
+Confidence
+Override
+Final Score
+```
+
+Cậu sẽ rất dễ nhận ra:
+
+> tại sao planner ngu ở case này?
+
+rồi tune config.
+
+---
+
+# 58. Planner Trace
+
+Backend nên có:
+
+```python
+PlannerTrace
+```
+
+Ví dụ:
+
+```json
+{
+  "goal": "fischl_skill",
+  "generated": true,
+  "blocked": false,
+  "deficiency": 0.22,
+  "impact": 1.0,
+  "tier": 0.92,
+  "team": 1.0,
+  "completion": 0.35,
+  "score": 82.7
+}
+```
+
+Không cần persist mãi.
+
+Chỉ phục vụ debug.
+
+---
+
+# 59. Snapshot Recalculation
+
+Mỗi GOOD import mới:
+
+```text
+Import
+↓
+Normalize
+↓
+Diff snapshot
+↓
+Close completed goals
+↓
+Invalidate stale tasks
+↓
+Recalculate everything
+↓
+Generate new plan
+```
+
+Không update plan bằng patch thủ công.
+
+Planner luôn regenerate từ source of truth.
+
+---
+
+# 60. Material Inventory Versioning
+
+Material inventory nhập tay phải gắn với timestamp:
+
+```python
+updated_at
+```
+
+Sau GOOD import mới không tự reset.
+
+Akasha data cũng vậy:
+
+```text
+Akasha evaluation persists
+```
+
+cho đến khi user upload bản mới.
+
+---
+
+# 61. Stale Data
+
+Sau này có thể cảnh báo:
+
+```text
+Akasha data:
+32 days old
+```
+
+nhưng không cần v1.
+
+Không tự giảm score chỉ vì data cũ.
+
+---
+
+# 62. Recommended planner pipeline
+
+```text
+1. Validate Context
+
+2. Normalize Account State
+
+3. Load Character Targets
+
+4. Calculate Character Component Progress
+
+5. Generate Upgrade Goals
+
+6. Build Dependency Graph
+
+7. Mark BLOCKED / ACTIONABLE
+
+8. Calculate:
+   Deficiency
+   Impact
+   Tier
+   Team
+   Completion
+   Efficiency
+
+9. Calculate Global Scores
+
+10. Apply Stable Ranking
+
+11. Run Multi-Step Simulation
+
+12. Resolve Material Requirements
+
+13. Compile Tasks
+
+14. Group Shared Domains
+
+15. Check Today Availability
+
+16. Generate Today Plan
+
+17. Generate Structured Reasons
+
+18. Return PlannerResult
+```
+
+---
+
+# 63. Pseudocode tổng thể
+
+```python
+def run_planner(ctx: PlannerContext) -> PlannerResult:
+
+    account = normalize_account(ctx.account)
+
+    progress = evaluate_character_progress(
+        account=account,
+        targets=ctx.targets,
+        akasha=ctx.akasha,
+    )
+
+    goals = generate_upgrade_goals(
+        account=account,
+        progress=progress,
+        targets=ctx.targets,
+    )
+
+    dependency_graph = build_dependencies(goals)
+
+    actionable = resolve_actionable_frontier(
+        goals,
+        dependency_graph,
+    )
+
+    for goal in actionable:
+
+        goal.deficiency = calculate_deficiency(goal)
+
+        goal.impact = calculate_impact(
+            goal,
+            ctx.targets,
+        )
+
+        goal.tier_value = resolve_tier(
+            goal.character_key,
+            ctx.tiers,
+        )
+
+        goal.team_value = calculate_team_value(
+            goal.character_key,
+            ctx.teams,
+        )
+
+        goal.completion_value = calculate_completion_bonus(
+            goal,
+            progress,
+        )
+
+        goal.efficiency = estimate_efficiency(
+            goal,
+            ctx.inventory,
+            ctx.game_data,
+        )
+
+        goal.global_score = calculate_score(goal)
+
+    global_plan = build_simulated_plan(
+        account,
+        goals,
+        ctx,
+    )
+
+    tasks = compile_tasks(
+        global_plan,
+        inventory=ctx.inventory,
+        game_data=ctx.game_data,
+    )
+
+    tasks = group_shared_farming(tasks)
+
+    today_plan = filter_today(
+        tasks,
+        ctx.domain_schedule,
+    )
+
+    return PlannerResult(
+        global_plan=global_plan,
+        today_plan=today_plan,
+        progress=progress,
+    )
+```
+
+---
+
+# 64. Planner Unit Tests bắt buộc
+
+| Case                      | Expected                             |
+| ------------------------- | ------------------------------------ |
+| Weapon Lv20 / target90    | Generate high deficiency weapon goal |
+| Weapon Lv90 / target90    | Không generate                       |
+| Skill 8 / target10        | Generate                             |
+| Auto 1 / target1          | Không generate                       |
+| Artifact chưa đạt gate    | Artifact BLOCKED                     |
+| Không có Akasha           | Artifact UNKNOWN, không farm         |
+| Inventory đủ talent books | Không generate farm books            |
+| Inventory books = null    | Không giả định thiếu                 |
+| Domain đóng hôm nay       | Có Global Plan, không có Today task  |
+| Pin character             | Score tăng nhưng dependency vẫn giữ  |
+| Character complete        | Không còn progression goal           |
+| Hai char cùng domain      | Group domain + batch bonus           |
+
+---
+
+# 65. Integration Test quan trọng nhất
+
+Cho một account fixture có:
+
+```text
+Character A:
+high tier
+Lv90
+Weapon20
+Talents complete
+
+Character B:
+high tier
+Lv80
+Weapon90
+Talent8
+
+Character C:
+artifact rất thấp
+core progression complete
+```
+
+Expected Planner:
+
+```text
+#1 có thể là Weapon A
+#2 Talent/Ascension B
+#3 Artifact C
+```
+
+Quan trọng là cả ba **cạnh tranh trong cùng một hệ thống scoring**.
+
+Không có planner riêng cho từng category.
+
+---
+
+# 66. Config phải điều chỉnh được mà không sửa code
+
+`planner.yaml`:
+
+```yaml
+weights:
+  deficiency: 0.32
+  impact: 0.28
+  tier: 0.18
+  team: 0.12
+  completion: 0.10
+
+efficiency:
+  min_modifier: 0.85
+  max_modifier: 1.00
+
+manual_priority:
+  normal: 1.00
+  prioritized: 1.15
+  deprioritized: 0.85
+
+ranking:
+  reorder_threshold: 3.0
+
+domain_batch:
+  max_bonus: 15
+
+planning:
+  global_horizon: 20
+  today_horizon: 10
+```
+
+Tuning project sau này chủ yếu là chỉnh file này.
+
+---
+
+# 67. Nguyên tắc quan trọng nhất khi code
+
+Planner phải **deterministic**.
+
+Cùng:
+
+```text
+Account State
+Targets
+Tier List
+Inventory
+Akasha
+Config
+```
+
+phải luôn cho:
+
+```text
+cùng Plan.
+```
+
+Không cho LLM quyết định Priority Score.
+
+LLM nếu được thêm sau này chỉ dùng cho:
+
+```text
+giải thích
+parse dữ liệu
+natural-language query
+```
+
+Không dùng:
+
+```text
+"hãy nhìn account và đoán nên farm gì"
+```
+
+Planner Engine mới là source of truth.
+
+---
+
+# 68. Definition of Done của Planner Engine v1
+
+Planner được coi là đạt khi:
+
+```text
+Import một GOOD snapshot
+
+→ detect tất cả build gap
+
+→ bỏ những talent không cần thiết
+
+→ áp target riêng từng character
+
+→ áp tier user config
+
+→ hiểu saved teams
+
+→ so sánh Level/Talent/Weapon/Artifact
+
+→ xử lý dependency
+
+→ tính material còn thiếu
+
+→ biết domain mở hôm nay
+
+→ group domain có nhiều mục tiêu
+
+→ tạo Global Plan
+
+→ tạo Today Plan
+
+→ giải thích được vì sao từng action có thứ hạng đó
+
+→ import snapshot mới
+
+→ tự đóng những việc đã hoàn thành
+
+→ regenerate plan
+```
+
+Nếu những điều trên hoạt động, Planner Engine v1 đã đủ để trở thành lõi thực sự của sản phẩm.

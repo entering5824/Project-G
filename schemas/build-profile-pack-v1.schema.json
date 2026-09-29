@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reviewed Build Knowledge Pack v1",
+  "type": "object",
+  "required": ["schemaVersion", "packVersion", "gameVersion", "profiles"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "packVersion": { "type": "string", "minLength": 1 },
+    "gameVersion": { "type": "string", "minLength": 1 },
+    "profiles": { "type": "array", "items": { "$ref": "#/$defs/profile" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": ["id", "characterKey", "archetype", "status", "depth", "progression", "sources"],
+      "properties": {
+        "id": { "type": "string" }, "characterKey": { "type": "string" },
+        "archetype": { "type": "string" }, "status": { "enum": ["VERIFIED", "PROVISIONAL", "STALE"] },
+        "depth": { "enum": ["BASIC", "STANDARD", "DEEP"] },
+        "isDefault": { "type": "boolean" }, "conditions": { "type": "object" },
+        "progression": { "type": "object", "required": ["level", "talents", "weapon"], "properties": {
+          "level": { "type": "integer", "minimum": 1, "maximum": 90 },
+          "ascension": { "type": "integer", "minimum": 0, "maximum": 6 },
+          "levelImportance": { "type": "number", "minimum": 0, "maximum": 1 },
+          "talents": { "type": "object", "required": ["normal", "skill", "burst"], "properties": {
+            "normal": { "$ref": "#/$defs/talent" }, "skill": { "$ref": "#/$defs/talent" },
+            "burst": { "$ref": "#/$defs/talent" }
+          }, "additionalProperties": false },
+          "weapon": { "type": "object", "required": ["targetLevel"], "properties": {
+            "targetLevel": { "type": "integer", "minimum": 1, "maximum": 90 },
+            "importance": { "type": "number", "minimum": 0, "maximum": 1 }, "stepUtility": { "type": "object" }
+          }, "additionalProperties": false }
+        }, "additionalProperties": false },
+        "artifacts": { "type": "object" },
+        "sources": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["type", "url", "checkedGameVersion"] } },
+        "reviewedAt": { "type": "string" }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "talent": { "type": "object", "required": ["target"], "properties": {
+      "enabled": { "type": "boolean" }, "target": { "type": "integer", "minimum": 1, "maximum": 13 },
+      "importance": { "type": "number", "minimum": 0, "maximum": 1 }, "stepUtility": { "type": "object" }
+    }, "additionalProperties": false }
+  }
+}

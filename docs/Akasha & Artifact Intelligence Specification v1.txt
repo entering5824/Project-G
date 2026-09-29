@@ -1,0 +1,2090 @@
+# Genshin Account Progression Planner
+
+# Akasha & Artifact Intelligence Specification v1
+
+## 1. Mục tiêu
+
+Artifact Intelligence phải trả lời ba câu:
+
+```text
+1. Artifact build hiện tại của character đã đủ target chưa?
+
+2. Nếu chưa, mức độ thiếu nghiêm trọng đến đâu?
+
+3. Nếu cần farm, domain đó có giá trị cho bao nhiêu character khác trong account?
+```
+
+Nó **không trả lời**:
+
+```text
+Artifact nào trong kho nên thay?
+Món +0 nào nên nâng?
+Nên đổi Goblet A sang Goblet B?
+Nên strongbox món nào?
+Set combination nào cho damage cao nhất?
+```
+
+Artifact chỉ là một **progression component** giống Level, Talent và Weapon.
+
+---
+
+# 2. Data Sources
+
+Artifact Intelligence sử dụng hai nguồn khác nhau:
+
+```text
+GOOD Snapshot
++
+Akasha Evaluation
+```
+
+GOOD cho:
+
+```text
+artifact đang được equip
+set hiện tại
+main stat
+substat
+artifact level
+```
+
+Akasha cho:
+
+```text
+chất lượng build
+RV / roll evaluation
+slot quality
+các metric đánh giá liên quan
+```
+
+Planner **không tự tính quality từ GOOD** trong v1.
+
+---
+
+# 3. Vai trò của GOOD artifact data
+
+GOOD artifact data chủ yếu để:
+
+```text
+biết character đang mặc set nào
+biết đủ 5 slot hay chưa
+biết artifact level
+debug discrepancy với Akasha
+```
+
+Không dùng để:
+
+```text
+tự tính Crit Value
+tự đoán build tốt/xấu
+tự chọn artifact replacement
+```
+
+Akasha là nguồn đánh giá build chính.
+
+---
+
+# 4. AkashaEvaluation
+
+```python
+class AkashaEvaluation:
+    id: str
+
+    character_key: str
+
+    imported_at: datetime
+
+    source: str
+
+    overall: ArtifactMetricSet
+
+    slots: dict[ArtifactSlot, ArtifactMetricSet]
+
+    raw_data: dict
+
+    parser_confidence: float
+
+    confirmed: bool
+
+    image_hash: str | None
+```
+
+---
+
+# 5. ArtifactMetricSet
+
+Không khóa parser vào duy nhất RV.
+
+```python
+class ArtifactMetricSet:
+    rv: float | None
+    cv: float | None
+
+    rank_percent: float | None
+
+    custom_score: float | None
+
+    extra_metrics: dict[str, float]
+```
+
+Lý do:
+
+Nếu sau này cậu thấy:
+
+```text
+RV không đủ tốt
+```
+
+ta có thể dùng thêm:
+
+```text
+Akasha ranking
+CV
+Roll Quality
+custom composite
+```
+
+mà không thay schema lớn.
+
+---
+
+# 6. Raw data phải được giữ lại
+
+Ví dụ parser đọc ảnh:
+
+```json
+{
+  "character": "Lauma",
+  "overallRv": 2580,
+  "flowerRv": 640,
+  "plumeRv": 580,
+  "sandsRv": 410,
+  "gobletRv": 390,
+  "circletRv": 560
+}
+```
+
+Ngoài normalized fields, phải giữ:
+
+```json
+{
+  "raw_data": {
+    ...
+  }
+}
+```
+
+để sau này đổi ArtifactQualityAdapter mà không cần upload lại ảnh.
+
+---
+
+# 7. Image Import Pipeline
+
+Workflow:
+
+```text
+Upload Akasha image
+        ↓
+Image Parser
+        ↓
+Character Detection
+        ↓
+Metric Extraction
+        ↓
+Confidence Validation
+        ↓
+Preview
+        ↓
+User Confirmation
+        ↓
+Save Evaluation
+        ↓
+Recalculate Planner
+```
+
+Không save trực tiếp từ OCR chưa confirm nếu confidence thấp.
+
+---
+
+# 8. Character detection
+
+Parser phải cố xác định:
+
+```text
+character_key
+```
+
+từ ảnh.
+
+Nếu character name detect không chắc chắn:
+
+```text
+status = NEEDS_CHARACTER_CONFIRMATION
+```
+
+UI:
+
+```text
+Detected character:
+
+[ Lauma ▼ ]
+
+Confidence: 82%
+
+[Confirm]
+```
+
+Không tự gắn nhầm vào character khác.
+
+---
+
+# 9. Akasha image hash
+
+Khi upload:
+
+```text
+SHA-256(image bytes)
+```
+
+lưu thành:
+
+```text
+image_hash
+```
+
+Nếu upload lại cùng ảnh:
+
+```text
+duplicate detected
+```
+
+không tạo evaluation mới trừ khi user yêu cầu replace.
+
+---
+
+# 10. Latest evaluation wins
+
+Mỗi character có thể có nhiều Akasha record trong history.
+
+Planner sử dụng:
+
+```text
+latest confirmed evaluation
+```
+
+Không delete evaluation cũ.
+
+Nhờ vậy history có thể biết:
+
+```text
+Artifact quality improved over time.
+```
+
+---
+
+# 11. Confirmation model
+
+Evaluation states:
+
+```text
+PENDING
+CONFIRMED
+REJECTED
+SUPERSEDED
+```
+
+Planner chỉ sử dụng:
+
+```text
+CONFIRMED
+```
+
+---
+
+# 12. Parser confidence
+
+Ví dụ:
+
+```text
+>= 0.95
+```
+
+có thể preselect confirm nhanh.
+
+```text
+0.70–0.95
+```
+
+show warning.
+
+```text
+< 0.70
+```
+
+yêu cầu user kiểm tra kỹ.
+
+Threshold config được.
+
+---
+
+# 13. Không để Vision quyết định quality
+
+Vision chỉ đọc:
+
+```text
+text / numbers / fields
+```
+
+Vision không được output:
+
+```text
+"This build is bad."
+```
+
+Quality Adapter mới làm việc đó.
+
+Pipeline:
+
+```text
+Image
+↓
+Metrics
+↓
+Quality Adapter
+↓
+Normalized Artifact Score
+↓
+Planner
+```
+
+---
+
+# 14. ArtifactQualityAdapter
+
+Interface:
+
+```python
+class ArtifactQualityAdapter:
+
+    def evaluate(
+        self,
+        evaluation: AkashaEvaluation,
+        character_target: ArtifactTarget,
+    ) -> ArtifactQualityResult:
+        ...
+```
+
+---
+
+# 15. ArtifactQualityResult
+
+```python
+class ArtifactQualityResult:
+    normalized_score: float | None
+
+    quality_label: str | None
+
+    target_score: float | None
+
+    deficiency: float | None
+
+    weak_slots: list[ArtifactSlot]
+
+    status: ArtifactQualityStatus
+```
+
+Statuses:
+
+```text
+UNKNOWN
+BELOW_TARGET
+COMPLETE
+INVALID_DATA
+```
+
+---
+
+# 16. Normalized artifact score
+
+Planner chỉ nhìn:
+
+```text
+0.0 → 1.0
+```
+
+Không nhìn trực tiếp:
+
+```text
+RV = 2478
+```
+
+Adapter chịu trách nhiệm normalize.
+
+Ví dụ sau này:
+
+```text
+RV 1800 → 0.35
+RV 2400 → 0.55
+RV 3000 → 0.75
+RV 3500 → 0.90
+```
+
+Đây chỉ là ví dụ cấu trúc.
+
+Ngưỡng thật chưa khóa.
+
+---
+
+# 17. Artifact quality labels
+
+Config:
+
+```yaml
+artifact_quality:
+  labels:
+    POOR:
+      score: TBD
+
+    ACCEPTABLE:
+      score: TBD
+
+    GOOD:
+      score: TBD
+
+    EXCELLENT:
+      score: TBD
+```
+
+CharacterTarget lưu:
+
+```text
+target_quality = GOOD
+```
+
+Adapter map:
+
+```text
+GOOD → target normalized score
+```
+
+---
+
+# 18. Threshold chưa rõ không cản development
+
+Trong giai đoạn đầu:
+
+```text
+threshold = placeholder config
+```
+
+Planner vẫn hoạt động architecture-wise.
+
+Có thể test bằng fake metric:
+
+```text
+current = 0.45
+target = 0.80
+```
+
+sau này thay mapping thật.
+
+---
+
+# 19. Artifact deficiency
+
+Formula cơ bản:
+
+```python
+def artifact_deficiency(current, target):
+    if current is None:
+        return None
+
+    if current >= target:
+        return 0.0
+
+    return (target - current) / target
+```
+
+Ví dụ:
+
+```text
+Target = .80
+Current = .40
+Deficiency = .50
+```
+
+---
+
+# 20. Non-linear deficiency
+
+Sau tuning có thể dùng curve mạnh hơn:
+
+```python
+D = ((target - current) / target) ** gamma
+```
+
+Ví dụ:
+
+```text
+gamma = 1.2
+```
+
+để build cực yếu nổi bật hơn.
+
+Nhưng v1 dùng linear trước.
+
+---
+
+# 21. Weak slot detection
+
+Akasha slot metrics:
+
+```text
+Flower
+Plume
+Sands
+Goblet
+Circlet
+```
+
+Adapter sort theo normalized slot quality.
+
+Output:
+
+```text
+weak_slots = [
+    "goblet",
+    "sands"
+]
+```
+
+Planner dùng để giải thích.
+
+Không generate replacement action.
+
+---
+
+# 22. Weak slot không phải goal riêng
+
+Không tạo:
+
+```text
+Improve Goblet
+Improve Sands
+```
+
+Global Goal duy nhất:
+
+```text
+Improve Artifacts for Lauma
+```
+
+Detail:
+
+```text
+Weakest slots:
+Goblet
+Sands
+```
+
+---
+
+# 23. Artifact goal
+
+```python
+ArtifactGoal(
+    character_key="Lauma",
+
+    current_quality=0.51,
+    target_quality=0.80,
+
+    deficiency=0.36,
+
+    target_sets=[...],
+)
+```
+
+---
+
+# 24. Artifact gate
+
+Artifact goal chỉ ACTIONABLE khi CharacterTarget gate đạt.
+
+Ví dụ:
+
+```text
+Lv >= 80
+Ascension >= 5
+Weapon >= 80
+```
+
+Nếu chưa:
+
+```text
+ArtifactGoal.status = BLOCKED
+```
+
+Planner không rank nó.
+
+---
+
+# 25. Artifact unknown behavior
+
+Nếu:
+
+```text
+artifact enabled
+```
+
+nhưng chưa upload Akasha:
+
+```text
+status = UNKNOWN
+```
+
+Planner:
+
+```text
+không generate farm action
+```
+
+Character:
+
+```text
+không thể COMPLETE
+```
+
+UI:
+
+```text
+Artifact data required
+```
+
+---
+
+# 26. Artifact Import Coverage
+
+Character list có thể hiện:
+
+```text
+Akasha
+✓ Mavuika
+✓ Furina
+? Fischl
+? Yae Miko
+```
+
+Cho phép filter:
+
+```text
+Missing Akasha
+```
+
+để user biết cần upload ai.
+
+---
+
+# 27. Artifact quality không phụ thuộc Tier mặc định
+
+Không làm:
+
+```text
+T0 cần GOOD
+T3 cần ACCEPTABLE
+```
+
+Tier và target độc lập.
+
+Nếu cậu muốn character T0 yêu cầu artifact cao hơn:
+
+```text
+CharacterTarget.artifact.target_quality
+```
+
+phải được set tương ứng.
+
+---
+
+# 28. Artifact importance
+
+CharacterTarget có:
+
+```text
+artifact.importance
+```
+
+Ví dụ DPS:
+
+```text
+1.00
+```
+
+support:
+
+```text
+0.50
+```
+
+Artifact Goal `Impact` lấy từ đây.
+
+---
+
+# 29. Artifact score cạnh tranh với Talent/Weapon
+
+Sau normalize, artifact goal đi vào cùng:
+
+```text
+Global Priority Formula
+```
+
+Ví dụ:
+
+```text
+Lauma Artifact
+D=.65
+I=.90
+Tier=.92
+...
+```
+
+so với:
+
+```text
+Yae Weapon
+D=.80
+I=.90
+...
+```
+
+Không có queue artifact riêng.
+
+---
+
+# 30. RNG efficiency penalty
+
+Artifact farming:
+
+```text
+Efficiency ≈ thấp hơn guaranteed progression
+```
+
+Ví dụ config:
+
+```yaml
+artifact:
+  default_efficiency: 0.40
+```
+
+Planner final modifier:
+
+```text
+0.85 + 0.15 × efficiency
+```
+
+nên artifact chỉ bị penalty nhẹ.
+
+Nếu artifact build rất tệ:
+
+```text
+Deficiency rất cao
+```
+
+nó vẫn có thể đứng #1.
+
+---
+
+# 31. Artifact diminishing value
+
+Khi artifact gần target:
+
+```text
+Deficiency nhỏ
+```
+
+action tự tụt xuống.
+
+Ví dụ:
+
+```text
+Current .75
+Target  .80
+```
+
+không nên đứng trên:
+
+```text
+Weapon 20 → 90
+```
+
+của một character quan trọng khác.
+
+---
+
+# 32. Farming domain resolution
+
+CharacterTarget:
+
+```yaml
+artifact:
+  primary_sets:
+    - SetA
+```
+
+GameData:
+
+```text
+SetA → DomainX
+```
+
+Artifact Task:
+
+```text
+Farm Domain X
+```
+
+---
+
+# 33. Multiple artifact sets
+
+Nếu:
+
+```text
+SetA
+SetB
+```
+
+đều hợp lệ:
+
+```python
+valid_domains = resolve_domains(valid_sets)
+```
+
+Planner có thể chọn domain có:
+
+```text
+AccountDomainValue cao nhất
+```
+
+Không nhất thiết luôn primary set.
+
+---
+
+# 34. Nhưng không optimizer build sâu
+
+Nếu hai set:
+
+```text
+SetA slightly better damage
+SetB domain efficient hơn nhiều cho account
+```
+
+V1 có thể chọn:
+
+```text
+Domain B
+```
+
+nếu target cho phép SetB.
+
+Planner không cần simulation damage.
+
+---
+
+# 35. Domain Character Demand
+
+Mỗi artifact-needing character tạo:
+
+```python
+DomainDemand(
+    character_key,
+    domain_key,
+    goal_score
+)
+```
+
+---
+
+# 36. Domain aggregation
+
+Ví dụ:
+
+```text
+Domain X:
+
+Lauma      Goal 86
+Nefer      Goal 73
+CharacterC Goal 61
+```
+
+Domain task score:
+
+```text
+highest = 86
+batch bonus = ...
+```
+
+---
+
+# 37. Batch bonus diminishing returns
+
+Ví dụ:
+
+```python
+bonus =
+    0.10 * second
+    + 0.05 * third
+    + 0.025 * remaining_sum
+```
+
+Cap:
+
+```text
+15 points
+```
+
+Không để domain phục vụ 10 character auto thành #1 mãi.
+
+---
+
+# 38. Domain Account Value
+
+Ngoài task score có thể hiển thị:
+
+```text
+Domain efficiency:
+HIGH
+```
+
+dựa trên:
+
+```text
+number of relevant owned characters
++
+their artifact deficiencies
++
+their tier weights
+```
+
+Nhưng đây chỉ UI metric.
+
+---
+
+# 39. Artifact Domain Task
+
+```python
+class ArtifactDomainTask:
+    domain_key: str
+
+    primary_character: str
+
+    benefiting_characters: list[str]
+
+    parent_goal_ids: list[str]
+
+    score: float
+
+    available_today: bool
+```
+
+Artifact domain:
+
+```text
+available daily
+```
+
+thông thường nên resolve như vậy từ GameData.
+
+---
+
+# 40. Primary character
+
+Domain task homepage cần character đại diện:
+
+```text
+Farm artifacts for Lauma
+```
+
+Primary:
+
+```text
+highest-scored ArtifactGoal
+```
+
+Detail:
+
+```text
+Also improves:
+Nefer
+Columbina
+```
+
+---
+
+# 41. Không tạo 3 identical cards
+
+Nếu ba character đều cần cùng domain:
+
+Không show:
+
+```text
+Farm Domain X for Lauma
+Farm Domain X for Nefer
+Farm Domain X for Columbina
+```
+
+Show:
+
+```text
+Farm Domain X
+
+Primary:
+Lauma
+
+Also benefits:
+Nefer
+Columbina
+```
+
+---
+
+# 42. Artifact task completion
+
+Artifact farm không thể được đánh dấu complete bằng việc user chạy domain.
+
+Chỉ khi:
+
+```text
+new Akasha evaluation
+```
+
+cho thấy:
+
+```text
+quality >= target
+```
+
+goal mới COMPLETE.
+
+---
+
+# 43. GOOD import không tự complete ArtifactGoal
+
+Vì GOOD mới chỉ biết:
+
+```text
+artifact đã đổi
+```
+
+nhưng không biết build quality mới có đạt target hay chưa.
+
+Sau GOOD import:
+
+```text
+ArtifactGoal vẫn dựa latest Akasha.
+```
+
+UI có thể cảnh báo:
+
+```text
+Artifacts changed since last Akasha evaluation.
+Consider updating Akasha data.
+```
+
+Đây là extension hữu ích sau này.
+
+---
+
+# 44. Artifact fingerprint
+
+GOOD equipped artifacts có thể tạo fingerprint:
+
+```text
+artifact IDs
++
+levels
++
+sets
+```
+
+Lưu cùng Akasha evaluation.
+
+Nếu snapshot sau fingerprint khác:
+
+```text
+Akasha evaluation may be stale
+```
+
+---
+
+# 45. Stale Artifact Evaluation
+
+Status có thể:
+
+```text
+CURRENT
+POSSIBLY_STALE
+```
+
+Planner v1 có hai lựa chọn:
+
+```text
+A. vẫn dùng evaluation nhưng cảnh báo
+B. không dùng cho planning
+```
+
+Tôi đề xuất **A**.
+
+Không nên làm planner mất artifact data chỉ vì user đổi một món nhỏ.
+
+---
+
+# 46. Akasha freshness
+
+Ngoài fingerprint, lưu:
+
+```text
+imported_at
+```
+
+UI có thể hiển thị:
+
+```text
+Akasha data updated 14 days ago
+```
+
+Không giảm score tự động theo thời gian.
+
+---
+
+# 47. Slot-level explanation
+
+Layer 2:
+
+```text
+Artifact Quality
+
+Overall: BELOW TARGET
+
+Weakest slots:
+1. Goblet
+2. Sands
+
+Recommended:
+Farm Domain X
+```
+
+Không cần show tất cả substat trong Planner.
+
+---
+
+# 48. Raw Akasha view
+
+Character detail có thể có:
+
+```text
+View Raw Metrics
+```
+
+cho debug.
+
+Không nên làm homepage technical.
+
+---
+
+# 49. Missing set mapping
+
+Nếu ArtifactTarget biết quality target nhưng không có set/domain:
+
+Planner vẫn có:
+
+```text
+ArtifactGoal
+```
+
+nhưng Task Compiler trả:
+
+```text
+ARTIFACT_DOMAIN_UNKNOWN
+```
+
+UI:
+
+```text
+Artifact upgrade needed,
+but no farming domain configured.
+```
+
+---
+
+# 50. Off-set artifact
+
+GOOD có thể cho thấy character đang mặc off-set.
+
+Planner không tự phạt chỉ vì:
+
+```text
+artifact set mismatch
+```
+
+trừ khi Target/System đã đánh giá build quality qua Akasha.
+
+Không làm rule:
+
+```text
+not 4-piece target set → BAD
+```
+
+vì build có thể hợp lệ.
+
+---
+
+# 51. Set validity dùng để chọn domain, không phải đánh giá quality
+
+Quality:
+
+```text
+Akasha metrics
+```
+
+Domain recommendation:
+
+```text
+CharacterTarget valid sets
+```
+
+Hai việc tách nhau.
+
+---
+
+# 52. Artifact set target optional
+
+Có thể có:
+
+```yaml
+artifact:
+  target_quality: GOOD
+  primary_sets: []
+```
+
+Khi đó Planner biết cần artifact tốt hơn nhưng chưa biết farm domain nào.
+
+Status:
+
+```text
+NEEDS_DOMAIN_CONFIG
+```
+
+---
+
+# 53. Akasha Parser interface
+
+```python
+class AkashaImageParser:
+
+    def parse(
+        self,
+        image_bytes: bytes,
+    ) -> AkashaParseResult:
+        ...
+```
+
+---
+
+# 54. AkashaParseResult
+
+```python
+class AkashaParseResult:
+    character_candidate: str | None
+
+    metrics: dict
+
+    confidence: float
+
+    warnings: list[str]
+
+    raw_text: dict
+```
+
+---
+
+# 55. Parser implementation không thuộc Planner
+
+Có thể dùng:
+
+```text
+Vision model
+OCR
+template recognition
+```
+
+Planner không quan tâm.
+
+Planner chỉ nhận:
+
+```text
+confirmed AkashaEvaluation
+```
+
+---
+
+# 56. Parser fallback
+
+Nếu slot metrics đọc được nhưng character name không đọc được:
+
+UI cho user chọn character thủ công.
+
+Nếu character đúng nhưng một metric fail:
+
+```text
+field = null
+```
+
+Không invent.
+
+---
+
+# 57. Partial evaluation
+
+Nếu chỉ có:
+
+```text
+overall metric
+```
+
+Planner vẫn có thể tính ArtifactGoal.
+
+Weak slot list:
+
+```text
+unavailable
+```
+
+Không block toàn bộ evaluation.
+
+---
+
+# 58. Required metric policy
+
+ArtifactQualityAdapter config:
+
+```yaml
+artifact_adapter:
+  primary_metric: rv
+```
+
+Nếu:
+
+```text
+rv = null
+```
+
+thì:
+
+```text
+INVALID_DATA
+```
+
+nếu adapter hiện tại bắt buộc RV.
+
+Sau này đổi adapter được.
+
+---
+
+# 59. Multiple Akasha screenshots
+
+Nếu một screenshot không chứa đủ thông tin:
+
+Có thể hỗ trợ:
+
+```text
+multiple images → one pending evaluation
+```
+
+nhưng v1 không cần.
+
+V1:
+
+```text
+1 image = 1 evaluation
+```
+
+---
+
+# 60. Bulk Akasha import
+
+Rất nên hỗ trợ:
+
+```text
+Drop 20 images
+```
+
+Backend parse song song/sequential.
+
+UI:
+
+```text
+18 detected
+2 need confirmation
+```
+
+User confirm hàng loạt.
+
+---
+
+# 61. File naming không phải source of truth
+
+Nếu file:
+
+```text
+lauma.png
+```
+
+có thể dùng tên làm hint.
+
+Nhưng parser vẫn phải đọc/confirm character.
+
+Không gắn chỉ dựa filename.
+
+---
+
+# 62. Duplicate character import
+
+Nếu cùng batch có 2 ảnh Lauma:
+
+UI phải hỏi:
+
+```text
+Two evaluations detected for Lauma.
+Choose latest / select one.
+```
+
+Không silently overwrite.
+
+---
+
+# 63. History linkage
+
+AkashaEvaluation lưu:
+
+```text
+account_snapshot_id | null
+```
+
+nếu upload gần snapshot nào đó.
+
+Không bắt buộc phải gắn.
+
+Có thể đơn giản:
+
+```text
+character + timestamp
+```
+
+v1.
+
+---
+
+# 64. Artifact Progress History
+
+Sau này History có thể hiện:
+
+```text
+Lauma Artifact
+
+Sep 23  ACCEPTABLE
+Oct 03  GOOD
+```
+
+Không cần biết từng artifact đã đổi gì.
+
+---
+
+# 65. Account Completion
+
+Artifact component progress sử dụng:
+
+```text
+normalized quality progress
+```
+
+Ví dụ:
+
+```text
+current .60
+target .80
+```
+
+component progress:
+
+```text
+.75
+```
+
+cap tại:
+
+```text
+1.0
+```
+
+---
+
+# 66. COMPLETE rule
+
+Nếu artifact enabled:
+
+```text
+current_quality >= target_quality
+```
+
+thì artifact component complete.
+
+Không yêu cầu:
+
+```text
+all slots max RV
+```
+
+---
+
+# 67. Artifact target change
+
+Nếu cậu đổi:
+
+```text
+ACCEPTABLE → GOOD
+```
+
+Planner immediately:
+
+```text
+re-evaluate latest Akasha
+```
+
+Nếu không đủ:
+
+```text
+generate ArtifactGoal
+```
+
+Không cần upload ảnh mới nếu metrics vẫn valid.
+
+---
+
+# 68. Quality Mapping Version
+
+ArtifactQualityConfig phải có:
+
+```text
+version
+```
+
+Nếu threshold thay đổi:
+
+```text
+v1 → v2
+```
+
+có thể làm character đổi status mà account không thay đổi.
+
+History cần biết nguyên nhân:
+
+```text
+QUALITY_CONFIG_CHANGED
+```
+
+---
+
+# 69. No leaderboard dependency
+
+Akasha rank percentage có thể lưu.
+
+Nhưng Planner v1 **không nên phụ thuộc bắt buộc vào leaderboard percentile**.
+
+Lý do:
+
+```text
+ranking thay đổi khi cộng đồng upload build mới
+```
+
+nó không phản ánh account thực sự yếu đi.
+
+Ưu tiên metric ổn định kiểu RV hơn nếu đủ dùng.
+
+---
+
+# 70. Nếu dùng leaderboard percentile
+
+Nếu sau này muốn:
+
+```text
+Top 20%
+Top 10%
+```
+
+chỉ nên là secondary metric.
+
+Không để:
+
+```text
+character tự nhiên rớt COMPLETE
+```
+
+chỉ vì leaderboard population thay đổi.
+
+---
+
+# 71. Artifact Quality Adapter versioning
+
+```python
+class ArtifactQualityConfig:
+    version: int
+    adapter_type: str
+    thresholds: dict
+```
+
+Snapshot/Plan lưu:
+
+```text
+artifact_quality_version
+```
+
+để debug.
+
+---
+
+# 72. Planner reason codes
+
+Artifact-specific:
+
+```text
+ARTIFACT_BELOW_TARGET
+ARTIFACT_FAR_BELOW_TARGET
+ARTIFACT_HIGH_IMPORTANCE
+ARTIFACT_GATE_BLOCKED
+ARTIFACT_DATA_MISSING
+ARTIFACT_DATA_STALE
+DOMAIN_MULTI_CHARACTER_VALUE
+ARTIFACT_TARGET_REACHED
+```
+
+---
+
+# 73. Explanation example
+
+Layer 1:
+
+```text
+Lauma
+
+Farm Artifacts
+Priority 84
+
+Artifact quality is below target.
+```
+
+Layer 2:
+
+```text
+Current quality:
+0.53
+
+Target:
+GOOD / 0.80
+
+Weakest slots:
+Goblet
+Sands
+
+Recommended domain:
+Domain X
+
+Also benefits:
+Nefer
+Character C
+```
+
+---
+
+# 74. Artifact task vs deterministic upgrade
+
+Planner should naturally produce:
+
+```text
+Weapon 20→90
+```
+
+above:
+
+```text
+Artifact .70→.80
+```
+
+in most cases.
+
+Nhưng:
+
+```text
+Artifact .20→.80
+```
+
+của character tier cao có thể vượt:
+
+```text
+Talent phụ 8→9
+```
+
+Điều này là mong muốn.
+
+---
+
+# 75. Artifact starvation guard
+
+Ngược lại, không để deterministic upgrades khiến artifact **không bao giờ được farm**.
+
+Vì:
+
+```text
+Deficiency + Impact + Tier
+```
+
+có thể đủ cao để artifact đi lên.
+
+Không hardcode:
+
+```text
+"always do talent before artifact"
+```
+
+---
+
+# 76. Artifact farm streak
+
+Optional future:
+
+Nếu planner liên tục chọn artifact domain nhiều ngày nhưng chưa đạt target:
+
+Có thể thêm:
+
+```text
+RNG fatigue modifier
+```
+
+để temporary giảm priority.
+
+Nhưng **không làm v1**.
+
+---
+
+# 77. Artifact minimum viable implementation
+
+Phase đầu chưa cần Vision thật.
+
+Có thể tạo form manual:
+
+```text
+Character: Lauma
+Overall score: .52
+Flower: ...
+...
+```
+
+để test Planner.
+
+Sau khi Planner logic ổn mới nối image parser.
+
+Điều này tách:
+
+```text
+Artifact Intelligence
+```
+
+khỏi:
+
+```text
+computer vision
+```
+
+rất quan trọng.
+
+---
+
+# 78. Mock Akasha mode
+
+Developer mode:
+
+```text
+Add Manual Artifact Evaluation
+```
+
+Nhập:
+
+```text
+Character
+Overall RV
+5 slot RV
+```
+
+để debug scoring.
+
+---
+
+# 79. Database tables
+
+```text
+akasha_evaluations
+artifact_metric_values
+artifact_quality_configs
+```
+
+Có thể đơn giản hơn bằng JSON column nếu SQLite hỗ trợ đủ nhu cầu.
+
+Ví dụ:
+
+```text
+akasha_evaluations
+├── id
+├── character_key
+├── imported_at
+├── raw_json
+├── normalized_json
+├── confidence
+├── confirmed
+└── image_hash
+```
+
+---
+
+# 80. Không lưu image bắt buộc
+
+Sau parse:
+
+Có thể:
+
+```text
+discard image
+```
+
+và chỉ giữ metrics.
+
+Hoặc lưu local path để audit.
+
+V1 tôi nghiêng:
+
+```text
+lưu image path local
+```
+
+nếu không quá phiền.
+
+Dễ kiểm tra parser sai.
+
+---
+
+# 81. Image storage
+
+Nếu lưu:
+
+```text
+data/uploads/akasha/
+```
+
+filename:
+
+```text
+<hash>.png
+```
+
+Tránh dùng character name làm unique filename.
+
+---
+
+# 82. API
+
+```text
+POST /api/import/akasha
+```
+
+Trả:
+
+```text
+pending evaluation
+```
+
+```text
+POST /api/import/akasha/bulk
+```
+
+```text
+POST /api/akasha/{evaluationId}/confirm
+```
+
+```text
+DELETE /api/akasha/{evaluationId}
+```
+
+```text
+GET /api/characters/{key}/artifact-evaluations
+```
+
+```text
+GET /api/characters/{key}/artifact-status
+```
+
+---
+
+# 83. Bulk endpoint behavior
+
+Response:
+
+```json
+{
+  "parsed": 18,
+  "needsConfirmation": 2,
+  "failed": 1
+}
+```
+
+Frontend không cần chờ Planner từng ảnh.
+
+Sau batch confirmation:
+
+```text
+recalculate once
+```
+
+---
+
+# 84. Planner invalidation
+
+Artifact plan invalidate khi:
+
+```text
+new Akasha confirmed
+ArtifactTarget changed
+ArtifactQualityConfig changed
+GOOD fingerprint changed if stale logic enabled
+```
+
+---
+
+# 85. Unit tests
+
+| Case                               | Expected                      |
+| ---------------------------------- | ----------------------------- |
+| Current >= target                  | no ArtifactGoal               |
+| Current below target               | generate ArtifactGoal         |
+| No Akasha                          | UNKNOWN, no farm task         |
+| Artifact gate not met              | goal BLOCKED                  |
+| Two chars same domain              | grouped domain task           |
+| Character target artifact disabled | ignore Akasha                 |
+| Slot metric missing                | overall can still work        |
+| OCR unconfirmed                    | planner ignores               |
+| Threshold changed                  | reevaluate without new upload |
+| Quality reaches target             | goal disappears               |
+
+---
+
+# 86. Integration test
+
+Account:
+
+```text
+Character A
+Tier T0
+Artifact .30 / target .80
+Domain X
+
+Character B
+Tier T1
+Artifact .55 / target .80
+Domain X
+
+Character C
+Tier T0
+Weapon Lv20 / target90
+```
+
+Expected:
+
+```text
+Global Plan
+
+#1 or high:
+Weapon Character C
+
+Artifact Domain X
+also ranks highly because:
+A severe deficiency
+B also benefits
+```
+
+Planner không tạo:
+
+```text
+Farm Domain X for A
+Farm Domain X for B
+```
+
+riêng biệt trong Today farming task.
+
+---
+
+# 87. Definition of Done
+
+Artifact Intelligence v1 hoàn thành khi:
+
+```text
+user có thể nhập Akasha evaluation
+
+evaluation gắn đúng character
+
+raw metrics được lưu
+
+metrics normalize thành quality score
+
+ArtifactTarget được so sánh với current quality
+
+weak slots được identify cho explanation
+
+artifact gate hoạt động
+
+ArtifactGoal cạnh tranh cùng Level/Talent/Weapon
+
+artifact domain resolve từ target set
+
+domain overlap giữa nhiều character được group
+
+artifact goal complete khi quality đạt target
+
+missing Akasha không bị coi là artifact xấu
+```
+
+---
+
+# 88. Nguyên tắc cuối cùng
+
+GOOD nói:
+
+> Character đang đeo cái gì?
+
+Akasha nói:
+
+> Build hiện tại tốt tới đâu?
+
+CharacterTarget nói:
+
+> Build phải tốt tới mức nào?
+
+Artifact Intelligence nói:
+
+> Còn thiếu bao xa?
+
+Planner nói:
+
+> Có đáng farm artifact ngay bây giờ không?
+
+GameData nói:
+
+> Nếu farm thì vào domain nào?
+
+Mỗi lớp chỉ làm đúng một việc.

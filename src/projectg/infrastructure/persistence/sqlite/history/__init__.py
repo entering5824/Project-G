@@ -1,0 +1,1 @@
+"""SQLite history persistence adapters."""

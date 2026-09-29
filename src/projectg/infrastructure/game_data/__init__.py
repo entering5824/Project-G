@@ -1,0 +1,1 @@
+"""Offline game data adapters."""

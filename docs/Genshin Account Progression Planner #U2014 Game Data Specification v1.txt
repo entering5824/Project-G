@@ -1,0 +1,1886 @@
+# Genshin Account Progression Planner — Game Data Specification v1
+
+## 1. Mục tiêu của Game Data Layer
+
+Game Data Layer lưu **dữ liệu khách quan của game**, độc lập hoàn toàn với account của người dùng.
+
+Nó trả lời các câu hỏi:
+
+```text
+Character X cần gì để ascension?
+Talent Y từ 8 → 9 cần gì?
+Weapon Z từ 20 → 90 cần gì?
+Material này farm ở đâu?
+Domain nào drop material này?
+Domain mở ngày nào?
+Artifact set này nằm ở domain nào?
+Boss nào drop material này?
+```
+
+Game Data **không chứa**:
+
+```text
+account hiện tại
+tier list cá nhân
+priority
+Akasha RV
+saved teams
+material inventory cá nhân
+planner score
+```
+
+---
+
+# 2. Kiến trúc dữ liệu
+
+```text
+External Game Data
+       ↓
+Game Data Importer
+       ↓
+Normalizer
+       ↓
+Canonical GameData
+       ↓
+Database / JSON Cache
+       ↓
+Planner / Cost Engine / Scheduler
+```
+
+Planner tuyệt đối không gọi trực tiếp API bên ngoài.
+
+Planner chỉ làm việc với:
+
+```python
+GameDataRepository
+```
+
+---
+
+# 3. Entity chính
+
+GameData gồm:
+
+```text
+CharacterDefinition
+WeaponDefinition
+MaterialDefinition
+ArtifactSetDefinition
+
+CharacterUpgradeCost
+TalentUpgradeCost
+WeaponUpgradeCost
+
+DomainDefinition
+BossDefinition
+WeeklyBossDefinition
+EnemyDefinition
+
+DropSource
+ScheduleDefinition
+```
+
+---
+
+# 4. Character Definition
+
+```python
+class CharacterDefinition:
+    key: str
+    name: str
+
+    rarity: int
+    element: str
+    weapon_type: str
+
+    region: str | None
+
+    local_specialty: str | None
+    normal_boss_material: str | None
+
+    talent_book_family: str | None
+    weekly_boss_materials: list[str]
+
+    ascension_material_family: str | None
+    common_enemy_material_family: str | None
+```
+
+Ví dụ logic:
+
+```text
+Fischl
+├── Ascension boss material
+├── Local specialty
+├── Enemy drop family
+├── Talent book family
+└── Weekly boss material
+```
+
+Không cần copy descriptive lore.
+
+Chỉ lưu dữ liệu liên quan tới progression.
+
+---
+
+# 5. Character Upgrade Cost
+
+Không hardcode cost vào Planner.
+
+Ví dụ:
+
+```python
+class CharacterLevelCost:
+    from_level: int
+    to_level: int
+
+    mora: int
+    exp: int
+```
+
+Ascension:
+
+```python
+class CharacterAscensionCost:
+    character_key: str
+
+    ascension_stage: int
+
+    mora: int
+
+    boss_material: dict[str, int]
+    elemental_gems: dict[str, int]
+    local_specialties: dict[str, int]
+    enemy_materials: dict[str, int]
+```
+
+Ví dụ:
+
+```text
+A5 → A6
+
+Mora
+Boss mat
+Gem
+Local specialty
+Enemy drop
+```
+
+Planner không cần biết tên vật liệu bằng logic riêng.
+
+---
+
+# 6. Talent Upgrade Cost
+
+Talent cost phải lưu **theo từng level step**.
+
+Không chỉ:
+
+```text
+1 → 10 total
+```
+
+Mà:
+
+```text
+1 → 2
+2 → 3
+3 → 4
+...
+9 → 10
+```
+
+Schema:
+
+```python
+class TalentUpgradeCost:
+    character_key: str
+
+    from_level: int
+    to_level: int
+
+    mora: int
+
+    talent_books: dict[str, int]
+    enemy_materials: dict[str, int]
+    weekly_materials: dict[str, int]
+    crown: int
+```
+
+Nếu Planner muốn:
+
+```text
+Skill 8 → 10
+```
+
+Cost Engine tính:
+
+```text
+cost(8→9)
++
+cost(9→10)
+```
+
+---
+
+# 7. Constellation không thuộc Progression Cost
+
+Constellation được scanner cung cấp nhưng:
+
+```text
+constellation
+```
+
+không phải thứ Planner có thể farm bằng progression thông thường.
+
+Do đó:
+
+```text
+C0 → C1
+```
+
+**không bao giờ là UpgradeGoal**.
+
+Constellation chỉ dùng để:
+
+```text
+xác định target
+xác định importance
+xác định build logic
+xác định team value nếu cần
+```
+
+---
+
+# 8. Weapon Definition
+
+```python
+class WeaponDefinition:
+    key: str
+    name: str
+
+    weapon_type: str
+    rarity: int
+
+    ascension_material_family: str
+    elite_enemy_material_family: str
+    common_enemy_material_family: str
+```
+
+Không cần lưu toàn bộ passive text trong v1.
+
+Có thể lưu sau nếu muốn làm weapon suitability.
+
+---
+
+# 9. Weapon Upgrade Cost
+
+Tách:
+
+```text
+Weapon EXP
+Ascension
+```
+
+Schema:
+
+```python
+class WeaponLevelCost:
+    rarity: int
+    from_level: int
+    to_level: int
+
+    exp: int
+    mora: int
+```
+
+Ascension:
+
+```python
+class WeaponAscensionCost:
+    weapon_key: str
+    stage: int
+
+    mora: int
+
+    domain_materials: dict[str, int]
+    elite_enemy_materials: dict[str, int]
+    common_enemy_materials: dict[str, int]
+```
+
+---
+
+# 10. Weapon suitability không thuộc Game Data v1
+
+Game Data biết:
+
+```text
+weapon X tồn tại
+```
+
+Nhưng không quyết định:
+
+> weapon X có tốt cho character Y không?
+
+Đó là một lớp khác:
+
+```text
+BuildKnowledge
+```
+
+V1 có thể dựa vào:
+
+```text
+weapon đang equipped
++
+CharacterTarget yêu cầu weapon level
+```
+
+Sau này nếu muốn hỗ trợ swap weapon thông minh:
+
+```text
+CharacterWeaponPreference
+```
+
+được thêm riêng.
+
+---
+
+# 11. Material Definition
+
+Canonical material:
+
+```python
+class MaterialDefinition:
+    key: str
+    name: str
+
+    category: MaterialCategory
+    rarity: int | None
+
+    family_key: str | None
+    tier: int | None
+```
+
+Category:
+
+```text
+MORA
+CHARACTER_EXP
+
+ELEMENTAL_GEM
+LOCAL_SPECIALTY
+
+BOSS_DROP
+WEEKLY_BOSS_DROP
+
+TALENT_BOOK
+WEAPON_ASCENSION
+
+COMMON_ENEMY_DROP
+ELITE_ENEMY_DROP
+
+CROWN
+
+WEAPON_EXP
+```
+
+---
+
+# 12. Material Families
+
+Rất quan trọng.
+
+Ví dụ talent book:
+
+```text
+Teachings of X
+Guide to X
+Philosophies of X
+```
+
+không nên coi là ba nhóm hoàn toàn khác.
+
+Ta có:
+
+```text
+family_key = talent_x
+```
+
+và:
+
+```text
+tier 1
+tier 2
+tier 3
+```
+
+Tương tự enemy drop:
+
+```text
+low
+medium
+high
+```
+
+---
+
+# 13. Crafting Conversion
+
+Planner nên biết:
+
+```text
+3 low → 1 medium
+3 medium → 1 high
+```
+
+Schema:
+
+```python
+class CraftRecipe:
+    output_material: str
+    output_amount: int
+
+    inputs: dict[str, int]
+```
+
+Cost Resolver phải tính được:
+
+```text
+Inventory:
+Low  = 90
+Mid  = 0
+High = 0
+```
+
+nhưng requirement:
+
+```text
+High = 10
+```
+
+thì không kết luận ngay:
+
+```text
+thiếu 10 high
+```
+
+mà biết:
+
+```text
+90 low
+→ 30 mid
+→ 10 high
+```
+
+=> đủ.
+
+---
+
+# 14. Craft Resolver
+
+Logic:
+
+```text
+required tier
+↓
+check exact tier
+↓
+check lower tiers
+↓
+convert possible amount
+↓
+calculate missing
+```
+
+Không tự craft trong game.
+
+Chỉ tính toán.
+
+---
+
+# 15. Domain Definition
+
+```python
+class DomainDefinition:
+    key: str
+    name: str
+
+    domain_type: DomainType
+
+    region: str
+
+    rewards: list[str]
+
+    schedule: DomainSchedule | None
+```
+
+`DomainType`:
+
+```text
+TALENT
+WEAPON
+ARTIFACT
+```
+
+---
+
+# 16. Talent Domain Schedule
+
+```python
+class DomainSchedule:
+    monday: bool
+    tuesday: bool
+    wednesday: bool
+    thursday: bool
+    friday: bool
+    saturday: bool
+    sunday: bool
+```
+
+Nhưng tốt hơn lưu:
+
+```text
+MON_THU
+TUE_FRI
+WED_SAT
+DAILY
+```
+
+Ví dụ:
+
+```python
+schedule_group: "MON_THU"
+```
+
+Scheduler resolve thành ngày.
+
+---
+
+# 17. Sunday Rule
+
+Sunday thường có tất cả material rotations tương ứng.
+
+Không cần duplicate data cho Sunday.
+
+Scheduler có thể hiểu:
+
+```text
+MON_THU
+→ Monday
+→ Thursday
+→ Sunday
+```
+
+Tương tự:
+
+```text
+TUE_FRI
+WED_SAT
+```
+
+---
+
+# 18. Server Time
+
+Domain availability phụ thuộc server reset.
+
+Settings:
+
+```python
+class ServerConfig:
+    region: ServerRegion
+```
+
+Enum:
+
+```text
+ASIA
+EUROPE
+AMERICA
+TW_HK_MO
+```
+
+TodayPlanner không dùng timezone máy trực tiếp.
+
+Nó gọi:
+
+```python
+GameClock.get_server_day()
+```
+
+---
+
+# 19. GameClock
+
+```python
+class GameClock:
+    def get_server_datetime(region) -> datetime
+    def get_server_day(region) -> Weekday
+    def until_daily_reset(region) -> timedelta
+```
+
+Nhờ vậy UI có thể hiển thị:
+
+```text
+Talent domain closes in ...
+```
+
+sau này.
+
+V1 chỉ cần:
+
+```text
+current server weekday
+```
+
+---
+
+# 20. Artifact Set Definition
+
+```python
+class ArtifactSetDefinition:
+    key: str
+    name: str
+
+    domain_key: str | None
+    strongbox_available: bool
+```
+
+Planner v1 chỉ quan tâm:
+
+```text
+domain_key
+```
+
+Không cần quản artifact set inventory.
+
+---
+
+# 21. Character → Artifact Domain Mapping
+
+Không nên suy ra chỉ từ artifact đang mặc.
+
+Target config hoặc Build Knowledge phải biết:
+
+```text
+character X
+→ target artifact set(s)
+```
+
+Ví dụ:
+
+```yaml
+Fischl:
+  artifact:
+    sets:
+      - GoldenTroupe
+```
+
+Game Data resolve:
+
+```text
+GoldenTroupe
+→ Domain ABC
+```
+
+Planner biết farm đâu.
+
+---
+
+# 22. Multiple Valid Artifact Sets
+
+Character có thể có:
+
+```text
+Set A
+Set B
+Set C
+```
+
+Target schema:
+
+```yaml
+artifact:
+  valid_sets:
+    - set: GoldenTroupe
+      priority: 1.0
+
+    - set: AlternativeSet
+      priority: 0.8
+```
+
+Nhưng v1 có thể đơn giản hơn:
+
+```text
+primary set
+```
+
+Không cần làm optimizer build.
+
+---
+
+# 23. Artifact Domain Synergy
+
+Game Data trả:
+
+```text
+Domain X drops:
+Set A
+Set B
+```
+
+Planner tìm:
+
+```text
+những owned characters nào target A hoặc B
+```
+
+và hiện đang:
+
+```text
+artifact below target
+```
+
+Từ đó tính:
+
+```text
+DomainAccountValue
+```
+
+---
+
+# 24. Normal Boss Definition
+
+```python
+class BossDefinition:
+    key: str
+    name: str
+
+    rewards: list[str]
+    resin_cost: int
+```
+
+Character ascension material map tới boss.
+
+Cost Compiler:
+
+```text
+Character A needs 8 boss drops
+↓
+Boss X
+```
+
+---
+
+# 25. Weekly Boss
+
+```python
+class WeeklyBossDefinition:
+    key: str
+    name: str
+
+    rewards: list[str]
+    weekly_limited: bool
+```
+
+Weekly boss goal cần flag:
+
+```text
+weekly_gate = true
+```
+
+Planner không cần cố tính exact ngày hoàn thành.
+
+Chỉ cần biết:
+
+```text
+progression bị weekly-gated
+```
+
+---
+
+# 26. Enemy Drops
+
+Open-world material:
+
+```python
+class EnemyDefinition:
+    key: str
+    name: str
+
+    drops: list[str]
+```
+
+Nhưng v1 Planner không cần chỉ đường đến enemy.
+
+Task chỉ cần:
+
+```text
+Collect Enemy Drop X
+```
+
+Không phải:
+
+```text
+teleport waypoint Y
+kill route Z
+```
+
+---
+
+# 27. Local Specialties
+
+Schema:
+
+```python
+class LocalSpecialtyDefinition:
+    material_key: str
+    region: str
+```
+
+Có thể lưu respawn duration sau.
+
+V1 Planner chỉ cần biết:
+
+```text
+open_world_farm = true
+```
+
+---
+
+# 28. Ley Lines
+
+Game Data nên có hai pseudo-source:
+
+```text
+MORA_LEY_LINE
+EXP_LEY_LINE
+```
+
+Nếu thiếu Mora:
+
+```text
+Task:
+Farm Mora Ley Line
+```
+
+Nếu thiếu Hero's Wit:
+
+```text
+Farm EXP Ley Line
+```
+
+---
+
+# 29. Resin Cost
+
+Game Data lưu base resin:
+
+```text
+Talent Domain     20
+Weapon Domain     20
+Artifact Domain   20
+Normal Boss       40
+Ley Line          20
+```
+
+Weekly boss có logic riêng.
+
+Nhưng Planner không giả định drop deterministic.
+
+---
+
+# 30. Expected Drop Model
+
+V1 không cần mô phỏng drop cực chính xác.
+
+Có thể dùng:
+
+```python
+ExpectedYield
+```
+
+dạng config.
+
+Ví dụ:
+
+```text
+talent domain highest difficulty:
+expected normalized yield
+```
+
+Cost Engine dùng estimate:
+
+```text
+required normalized materials
+/
+expected normalized yield
+× resin
+```
+
+Nếu chưa muốn xử lý phức tạp:
+
+```text
+estimated_resin = null
+```
+
+vẫn chấp nhận.
+
+Planner chạy được nhờ bucket Efficiency.
+
+---
+
+# 31. Normalized Material Units
+
+Để estimate dễ hơn, convert các tier material về lowest-tier-equivalent.
+
+Ví dụ:
+
+```text
+Green = 1
+Blue  = 3
+Purple = 9
+```
+
+Requirement:
+
+```text
+2 Purple
+```
+
+=
+
+```text
+18 base units
+```
+
+Inventory:
+
+```text
+1 Purple
+2 Blue
+3 Green
+```
+
+=
+
+```text
+9 + 6 + 3 = 18
+```
+
+=> đủ.
+
+Cost Engine cực dễ xử lý.
+
+---
+
+# 32. Crown
+
+Crown:
+
+```text
+non-farmable conventional resource
+```
+
+Nếu inventory Crown không đủ:
+
+Planner phải báo:
+
+```text
+BLOCKED_RESOURCE
+```
+
+chứ không generate:
+
+```text
+Farm Crown Domain
+```
+
+Vì không tồn tại.
+
+---
+
+# 33. Non-Farmable Resources
+
+Material Definition có:
+
+```python
+farmable: bool
+```
+
+Nếu:
+
+```text
+farmable = false
+```
+
+Cost Compiler không được invent source.
+
+Task có thể:
+
+```text
+RESOURCE_UNAVAILABLE
+```
+
+---
+
+# 34. Source Mapping
+
+Một material có thể có nhiều source.
+
+```python
+class DropSource:
+    material_key: str
+
+    source_type: SourceType
+    source_key: str
+
+    priority: float
+```
+
+Ví dụ:
+
+```text
+Talent Book
+→ Domain X
+```
+
+Enemy material:
+
+```text
+Material Y
+→ Enemy A
+→ Enemy B
+```
+
+Artifact:
+
+```text
+Set Z
+→ Domain Q
+```
+
+---
+
+# 35. Planner không chọn route open-world
+
+Nếu material có:
+
+```text
+Enemy A
+Enemy B
+Enemy C
+```
+
+Planner chỉ cần:
+
+```text
+Farm Material Y
+```
+
+Không cần optimize:
+
+```text
+Enemy nào nhanh nhất
+```
+
+Đó là scope riêng.
+
+---
+
+# 36. GameDataRepository Interface
+
+Planner không query database trực tiếp.
+
+Interface:
+
+```python
+class GameDataRepository:
+
+    def get_character(key):
+        ...
+
+    def get_weapon(key):
+        ...
+
+    def get_material(key):
+        ...
+
+    def get_character_ascension_cost(
+        character,
+        from_stage,
+        to_stage,
+    ):
+        ...
+
+    def get_talent_cost(
+        character,
+        from_level,
+        to_level,
+    ):
+        ...
+
+    def get_weapon_cost(
+        weapon,
+        from_level,
+        to_level,
+    ):
+        ...
+
+    def get_domain_for_material(material):
+        ...
+
+    def get_domain_for_artifact_set(set_key):
+        ...
+
+    def is_domain_available(domain, date, region):
+        ...
+```
+
+---
+
+# 37. Aggregated Cost API nội bộ
+
+Planner không nên tự cộng cost.
+
+Cost Engine gọi:
+
+```python
+get_talent_cost(
+    "Fischl",
+    8,
+    10
+)
+```
+
+Repository trả:
+
+```python
+UpgradeCost(
+    mora=...,
+    materials={
+        ...
+    }
+)
+```
+
+---
+
+# 38. Key Naming
+
+Tất cả internal relation phải dùng stable key.
+
+Ví dụ:
+
+```text
+Fischl
+TeachingsOfBallad
+GoldenTroupe
+ForsakenRift
+```
+
+Không join bằng localized name:
+
+```text
+"Fischl"
+"Teachings of Ballad"
+```
+
+Tên hiển thị có thể đổi language.
+
+---
+
+# 39. Localization
+
+GameData schema nên tách:
+
+```text
+key
+display_name
+```
+
+Nếu sau này app Vietnamese:
+
+```text
+display_name_vi
+```
+
+không ảnh hưởng relation.
+
+Tốt hơn:
+
+```python
+names: dict[str, str]
+```
+
+Ví dụ:
+
+```json
+{
+  "en": "Fischl",
+  "vi": "Fischl"
+}
+```
+
+Nhưng v1 chỉ English cũng đủ.
+
+---
+
+# 40. Unknown Scanner Keys
+
+GOOD có thể chứa character/weapon mới hơn GameData.
+
+Nếu:
+
+```text
+scanner key exists
+```
+
+nhưng:
+
+```text
+GameData missing
+```
+
+backend không crash.
+
+Result:
+
+```text
+GAME_DATA_MISSING
+```
+
+Character vẫn import được.
+
+Planner bỏ qua những goal cần GameData chưa có.
+
+---
+
+# 41. Game Data Version
+
+Bắt buộc:
+
+```python
+class GameDataMeta:
+    version: str
+    game_version: str | None
+    generated_at: datetime
+    source: str
+```
+
+Snapshot account lưu:
+
+```text
+game_data_version
+```
+
+để debug sau này.
+
+---
+
+# 42. Update Strategy
+
+Không để app phụ thuộc live API mỗi lần mở.
+
+Flow:
+
+```text
+Game data source
+↓
+Update script
+↓
+Normalize
+↓
+Validate
+↓
+Generate local dataset
+↓
+Commit / replace GameData
+```
+
+App runtime:
+
+```text
+đọc local database
+```
+
+Nhanh và deterministic.
+
+---
+
+# 43. Static Dataset
+
+V1 có thể để:
+
+```text
+game_data/
+├── characters.json
+├── weapons.json
+├── materials.json
+├── domains.json
+├── artifacts.json
+├── bosses.json
+├── costs/
+│   ├── character.json
+│   ├── talent.json
+│   └── weapon.json
+└── metadata.json
+```
+
+Hoặc import vào SQLite khi startup.
+
+---
+
+# 44. Tôi ưu tiên JSON → SQLite
+
+Source of truth:
+
+```text
+normalized JSON
+```
+
+Runtime:
+
+```text
+SQLite
+```
+
+Ưu điểm:
+
+```text
+dataset dễ inspect
+dễ git diff
+dễ regenerate
+runtime query nhanh
+```
+
+---
+
+# 45. Importer Idempotency
+
+Chạy updater hai lần với cùng source:
+
+```text
+phải cho cùng output
+```
+
+Không tạo duplicate materials hoặc domain.
+
+---
+
+# 46. Validation
+
+Update GameData phải validate:
+
+```text
+character target references valid materials
+
+weapon references valid materials
+
+material domain exists
+
+artifact domain exists
+
+cost levels contiguous
+
+no duplicate stable keys
+```
+
+Ví dụ:
+
+```text
+Talent cost:
+6→7
+7→8
+8→9
+```
+
+nếu thiếu:
+
+```text
+9→10
+```
+
+build phải fail.
+
+Không silently deploy dataset lỗi.
+
+---
+
+# 47. Referential Integrity Tests
+
+Ví dụ:
+
+```python
+for character in characters:
+
+    assert material_exists(
+        character.normal_boss_material
+    )
+
+    assert material_family_exists(
+        character.talent_book_family
+    )
+```
+
+Tương tự weapon và artifact.
+
+---
+
+# 48. Cost Consistency Tests
+
+Talent:
+
+```text
+1 → 2
+...
+9 → 10
+```
+
+Weapon:
+
+```text
+1 → 20
+20 → 40
+...
+80 → 90
+```
+
+Character:
+
+```text
+A0
+→
+A6
+```
+
+Mọi progression path phải resolve được.
+
+---
+
+# 49. Scheduler Tests
+
+Ví dụ một domain:
+
+```text
+MON_THU
+```
+
+Assert:
+
+```text
+Monday    true
+Thursday  true
+Sunday    true
+
+Tuesday   false
+Wednesday false
+Friday    false
+Saturday  false
+```
+
+---
+
+# 50. Material Resolver Example
+
+Planner muốn:
+
+```text
+Fischl Skill 8 → 9
+```
+
+GameData trả:
+
+```text
+Mora
+Talent book tier X
+Enemy drop tier Y
+Weekly drop Z
+```
+
+Inventory:
+
+```text
+Mora            enough
+Talent books    thiếu
+Enemy drop      enough
+Weekly material enough
+```
+
+Task Compiler:
+
+```text
+Farm Talent Domain X
+```
+
+Đây chính là mục tiêu của Game Data Layer.
+
+---
+
+# 51. Multiple Missing Resources
+
+Nếu:
+
+```text
+Talent upgrade
+```
+
+thiếu:
+
+```text
+Mora
+Talent books
+Enemy drops
+```
+
+Planner không tạo ba global goals.
+
+Global Goal vẫn là:
+
+```text
+Upgrade Fischl Skill
+```
+
+Today Compiler có thể tạo dependency tasks:
+
+```text
+Farm Talent Domain
+Farm Mora
+Collect enemy drops
+```
+
+theo priority nội bộ.
+
+---
+
+# 52. Task Dependency
+
+Ví dụ:
+
+```text
+Upgrade Talent
+├── Mora
+├── Books
+├── Enemy drops
+└── Weekly drop
+```
+
+Khi tất cả đủ:
+
+```text
+UPGRADE_NOW
+```
+
+Thay vì vẫn bảo:
+
+```text
+Farm books
+```
+
+---
+
+# 53. Over-Farming Prevention
+
+Cost Engine chỉ yêu cầu:
+
+```text
+target - owned
+```
+
+Nếu:
+
+```text
+target books = 9
+owned equivalent = 12
+```
+
+Task không tồn tại.
+
+Không khuyên farm thêm “để dành”.
+
+Scope là current progression plan.
+
+---
+
+# 54. Plan-Aware Inventory UI
+
+Frontend hỏi:
+
+```text
+GET /inventory/relevant
+```
+
+Backend lấy top planner goals và trả:
+
+```text
+chỉ các material liên quan.
+```
+
+User không cần nhập 300 loại material.
+
+Ví dụ:
+
+```text
+Current plan needs:
+
+Guide to X
+Philosophies of X
+Boss Drop A
+Weekly Drop B
+Mora
+Hero's Wit
+```
+
+---
+
+# 55. Game Data không chứa Tier
+
+Bắt buộc tách:
+
+```text
+GameData
+≠
+UserPlannerConfig
+```
+
+Tier list do user quản.
+
+Character Target cũng do user/app config quản.
+
+Không trộn vào game dataset.
+
+---
+
+# 56. Game Data không chứa Akasha
+
+Tương tự:
+
+```text
+AkashaEvaluation
+```
+
+là account-derived user data.
+
+Không thuộc static GameData.
+
+---
+
+# 57. Game Data không chứa Planner Weights
+
+```text
+planner.yaml
+```
+
+là PlannerConfig.
+
+Không nằm trong:
+
+```text
+GameData
+```
+
+---
+
+# 58. Suggested folder structure
+
+```text
+backend/
+└── app/
+    └── game_data/
+        ├── models.py
+        ├── repository.py
+        ├── resolver.py
+        ├── scheduler.py
+        │
+        ├── importers/
+        │   ├── characters.py
+        │   ├── weapons.py
+        │   ├── materials.py
+        │   └── domains.py
+        │
+        └── validators/
+            ├── references.py
+            ├── costs.py
+            └── schedules.py
+```
+
+Dataset:
+
+```text
+data/game/
+├── characters.json
+├── weapons.json
+├── materials.json
+├── artifacts.json
+├── domains.json
+├── bosses.json
+├── costs.json
+└── metadata.json
+```
+
+---
+
+# 59. MVP Game Data
+
+Không cần đưa cả Genshin vào ngay.
+
+MVP chỉ cần:
+
+```text
+Owned Characters
++
+Equipped Weapons
++
+materials liên quan tới chúng
++
+domains liên quan
++
+artifact sets target
+```
+
+Nhưng tôi vẫn khuyến nghị importer hỗ trợ full dataset.
+
+---
+
+# 60. Minimum Definition of Done
+
+Game Data Layer v1 hoàn thành khi backend có thể nhận:
+
+```text
+Character = X
+Current talent = 8
+Target = 10
+```
+
+và trả:
+
+```text
+Required:
+- Mora ...
+- Book ...
+- Enemy drop ...
+- Weekly boss drop ...
+- Crown ...
+
+Available sources:
+- Talent Domain ...
+- Enemy ...
+- Weekly Boss ...
+
+Domain schedule:
+...
+```
+
+Tương tự cho:
+
+```text
+Character ascension
+Character level
+Weapon level
+Weapon ascension
+Artifact domain
+```
+
+---
+
+# 61. Acceptance Test quan trọng nhất
+
+Input:
+
+```text
+GOOD account
++
+Character Targets
++
+Material Inventory
+```
+
+Planner chọn:
+
+```text
+Upgrade Character A Talent
+```
+
+GameData + Cost Engine phải compile được thành:
+
+```text
+GLOBAL
+
+Upgrade Character A Talent 8 → 9
+Priority 87
+```
+
+và:
+
+```text
+TODAY
+
+Farm Talent Domain X
+Needed: ...
+Owned: ...
+Remaining: ...
+Available today: Yes
+```
+
+Nếu inventory đã đủ:
+
+```text
+TODAY
+
+Upgrade Talent A now
+```
+
+Không được hiện domain farm nữa.
+
+---
+
+# 62. Những thứ để sau
+
+Không đưa vào v1:
+
+```text
+enemy route optimization
+map integration
+teleport route
+real-time resin tracking
+crafting UI automation
+expedition planning
+teapot material conversion
+shop optimization
+event reward planning
+battle pass reward forecasting
+```
+
+Chúng không cần để giải bài toán chính.
+
+---
+
+# 63. Kết luận kiến trúc
+
+GameData phải được xem như:
+
+```text
+readonly canonical knowledge base
+```
+
+Planner hỏi nó:
+
+```text
+“Upgrade này cần gì?”
+```
+
+Cost Engine hỏi:
+
+```text
+“Tôi đang thiếu bao nhiêu?”
+```
+
+Scheduler hỏi:
+
+```text
+“Hôm nay có farm được không?”
+```
+
+Frontend không tự suy luận bất kỳ thứ gì từ raw GameData.
+
+Backend là nơi resolve toàn bộ logic.

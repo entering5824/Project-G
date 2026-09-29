@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "ratings": {
+    "Furina": { "score": 95, "notes": "Ví dụ xếp S+" },
+    "Nahida": { "score": 90, "notes": "Ví dụ xếp S+" },
+    "KaedeharaKazuha": { "score": 87, "notes": "Ví dụ xếp S+" },
+    "Neuvillette": { "score": 82, "notes": "Ví dụ xếp S" },
+    "Bennett": { "score": 78, "notes": "Ví dụ xếp S" },
+    "Xingqiu": { "score": 72, "notes": "Ví dụ xếp S" },
+    "RaidenShogun": { "score": 63, "notes": "Ví dụ xếp A" },
+    "Xiangling": { "score": 55, "notes": "Ví dụ xếp A" },
+    "Zhongli": { "score": 43, "notes": "Ví dụ xếp B" },
+    "Fischl": { "score": 26, "notes": "Ví dụ xếp C" }
+  },
+  "minimumTierForRoadmap": "B",
+  "controls": {},
+  "selectedSets": {}
+}

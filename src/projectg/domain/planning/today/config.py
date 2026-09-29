@@ -1,0 +1,1 @@
+TODAY_HORIZON = 10

@@ -1,0 +1,2355 @@
+# Genshin Account Progression Planner
+
+# Database, Snapshot & History Specification v1
+
+## 1. Mục tiêu
+
+Persistence layer phải lưu được:
+
+```text
+Account state
+GOOD snapshots
+Character targets
+Tier config
+Manual priorities
+Material inventory
+Akasha evaluations
+Planner configuration
+History / diffs
+```
+
+Nhưng **không được coi Plan là source of truth**.
+
+Nguyên tắc:
+
+```text
+SOURCE DATA
+    ↓
+NORMALIZED STATE
+    ↓
+PLANNER
+    ↓
+PLAN
+```
+
+Nếu source data thay đổi:
+
+```text
+Plan cũ → invalidate
+Plan mới → regenerate
+```
+
+---
+
+# 2. Những thứ là Source of Truth
+
+Source of truth gồm:
+
+```text
+GOOD import
+Character Target
+Tier Assignment
+Manual Priority Override
+Material Inventory
+Confirmed Akasha Evaluation
+Planner Config
+Game Data Version
+Saved Teams
+```
+
+---
+
+# 3. Những thứ KHÔNG phải Source of Truth
+
+Không coi các thứ sau là authoritative:
+
+```text
+Current Plan
+Today Plan
+Priority Score
+Character Completion %
+Generated Tasks
+Calculated Missing Materials
+Domain Recommendations
+```
+
+Tất cả đều có thể regenerate.
+
+---
+
+# 4. Storage stack
+
+V1:
+
+```text
+SQLite
++
+SQLAlchemy
+```
+
+Không cần:
+
+```text
+PostgreSQL
+Redis
+MongoDB
+Vector DB
+```
+
+App cá nhân, local-first.
+
+---
+
+# 5. Database top-level structure
+
+Đề xuất:
+
+```text
+accounts
+
+account_snapshots
+snapshot_characters
+snapshot_weapons
+snapshot_artifacts
+snapshot_teams
+
+character_targets
+character_target_versions
+
+tier_configs
+tier_assignments
+
+priority_overrides
+
+material_inventory
+material_inventory_versions
+
+akasha_evaluations
+
+planner_configs
+
+planner_runs
+
+history_events
+```
+
+Không phải bảng nào cũng bắt buộc ở MVP đầu tiên.
+
+---
+
+# 6. Account table
+
+Dù hiện tại chỉ có một account, vẫn nên có:
+
+```python
+class Account:
+    id: str
+    name: str
+
+    server_region: str
+
+    created_at: datetime
+    updated_at: datetime
+```
+
+Ví dụ:
+
+```text
+id = "main"
+name = "My Genshin Account"
+server = ASIA
+```
+
+Không hardcode singleton khắp backend.
+
+---
+
+# 7. Vì sao vẫn cần Account entity
+
+Sau này có thể:
+
+```text
+main account
+alt account
+test account
+```
+
+hoặc fixture development.
+
+Không cần redesign database.
+
+---
+
+# 8. AccountSnapshot
+
+Mỗi GOOD import được lưu thành snapshot bất biến.
+
+```python
+class AccountSnapshot:
+    id: str
+
+    account_id: str
+
+    imported_at: datetime
+
+    good_format: str
+    good_version: int | None
+    good_db_version: int | None
+
+    raw_file_hash: str
+
+    game_data_version: str
+    importer_version: str
+
+    previous_snapshot_id: str | None
+```
+
+---
+
+# 9. Snapshot bất biến
+
+Sau khi import:
+
+```text
+Snapshot #10
+```
+
+không được chỉnh thành trạng thái khác.
+
+Nếu scan lại:
+
+```text
+Snapshot #11
+```
+
+được tạo.
+
+History dựa trên chuỗi snapshot.
+
+---
+
+# 10. Raw GOOD archive
+
+Nên giữ file GOOD gốc.
+
+Hai phương án:
+
+```text
+A. raw JSON trong DB
+B. file local + DB path/hash
+```
+
+Tôi đề xuất:
+
+```text
+file local
++
+hash trong DB
+```
+
+Ví dụ:
+
+```text
+data/snapshots/
+2026-09-23_<hash>.json
+```
+
+---
+
+# 11. Tại sao giữ raw GOOD
+
+Để sau này:
+
+```text
+Importer có bug
+GameData thay đổi
+Schema normalize thay đổi
+```
+
+ta có thể re-import snapshot cũ.
+
+Không mất dữ liệu gốc.
+
+---
+
+# 12. Snapshot Character State
+
+```python
+class SnapshotCharacter:
+    snapshot_id: str
+    character_key: str
+
+    level: int
+    ascension: int
+    constellation: int
+
+    talent_auto: int
+    talent_skill: int
+    talent_burst: int
+
+    equipped_weapon_id: str | None
+```
+
+Có thể thêm:
+
+```text
+raw_json
+```
+
+nếu cần debug.
+
+---
+
+# 13. Snapshot Weapon State
+
+```python
+class SnapshotWeapon:
+    snapshot_id: str
+
+    weapon_instance_id: str
+    weapon_key: str
+
+    level: int
+    ascension: int
+    refinement: int
+
+    location: str | None
+```
+
+Phải giữ:
+
+```text
+weapon_instance_id
+```
+
+vì có nhiều bản cùng weapon.
+
+---
+
+# 14. Snapshot Artifact State
+
+Dù app không quản inventory artifact, snapshot vẫn nên giữ artifact equipped.
+
+Có thể chỉ normalize artifact đang mặc:
+
+```python
+class SnapshotArtifact:
+    snapshot_id: str
+
+    artifact_instance_id: str
+
+    character_key: str
+
+    set_key: str
+    slot_key: str
+
+    rarity: int
+    level: int
+
+    main_stat_key: str
+
+    substats_json: dict
+```
+
+---
+
+# 15. Không cần persist toàn bộ artifact bag normalized
+
+Raw GOOD đã archive.
+
+Normalized DB chỉ cần:
+
+```text
+equipped artifacts
+```
+
+vì Planner không dùng artifact inventory.
+
+Giảm lượng dữ liệu đáng kể.
+
+---
+
+# 16. Snapshot Team State
+
+```python
+class SnapshotTeam:
+    snapshot_id: str
+    team_id: str
+
+    name: str | None
+
+    members_json: list[str]
+
+    raw_config_json: dict | None
+```
+
+Saved team là một phần của account state.
+
+---
+
+# 17. Current account state
+
+Không cần một bảng mutable:
+
+```text
+current_characters
+```
+
+nếu không muốn.
+
+Có thể định nghĩa:
+
+```text
+latest snapshot
+```
+
+là current account state.
+
+Repository:
+
+```python
+get_current_snapshot(account_id)
+```
+
+---
+
+# 18. Latest snapshot lookup
+
+```text
+ORDER BY imported_at DESC
+LIMIT 1
+```
+
+Hoặc Account lưu:
+
+```text
+current_snapshot_id
+```
+
+Tôi nghiêng về:
+
+```text
+accounts.current_snapshot_id
+```
+
+để lookup nhanh và rõ ràng.
+
+---
+
+# 19. Import transaction
+
+GOOD import workflow:
+
+```text
+validate file
+↓
+calculate hash
+↓
+check duplicate
+↓
+normalize
+↓
+begin transaction
+↓
+create snapshot
+↓
+insert characters/weapons/artifacts/teams
+↓
+update account.current_snapshot_id
+↓
+commit
+↓
+recalculate planner
+```
+
+Nếu bất kỳ insert nào fail:
+
+```text
+rollback
+```
+
+Không được có snapshot nửa vời.
+
+---
+
+# 20. Duplicate GOOD import
+
+Nếu:
+
+```text
+raw_file_hash == latest snapshot hash
+```
+
+UI nên báo:
+
+```text
+This snapshot is identical to the current account state.
+```
+
+Không cần tạo snapshot mới.
+
+Có thể cho:
+
+```text
+Force Import
+```
+
+trong developer mode, nhưng không cần v1.
+
+---
+
+# 21. Same state, different JSON ordering
+
+Hash raw bytes có thể khác dù data giống nhau.
+
+Do đó nên có thêm:
+
+```text
+canonical_state_hash
+```
+
+Tạo từ normalized account state.
+
+---
+
+# 22. Canonical state hash
+
+Ví dụ:
+
+```text
+sort characters
+sort weapons
+sort equipped artifacts
+serialize deterministic
+SHA-256
+```
+
+Nếu:
+
+```text
+canonical_state_hash same
+```
+
+thì account state không đổi thật sự.
+
+---
+
+# 23. Snapshot Diff
+
+Sau khi import snapshot mới:
+
+```text
+old snapshot
+vs
+new snapshot
+```
+
+Diff Engine generate:
+
+```text
+Character leveled
+Ascension increased
+Talent increased
+Weapon leveled
+Weapon changed
+Artifact changed
+Constellation changed
+Team changed
+New character acquired
+New weapon acquired
+```
+
+---
+
+# 24. Diff model
+
+```python
+class SnapshotDiff:
+    from_snapshot_id: str
+    to_snapshot_id: str
+
+    character_changes: list[CharacterChange]
+    weapon_changes: list[WeaponChange]
+    artifact_changes: list[ArtifactChange]
+    team_changes: list[TeamChange]
+```
+
+Diff có thể generate on demand.
+
+Không nhất thiết persist toàn bộ.
+
+---
+
+# 25. CharacterChange
+
+```python
+class CharacterChange:
+    character_key: str
+
+    field: str
+
+    old_value: Any
+    new_value: Any
+
+    change_type: str
+```
+
+Ví dụ:
+
+```text
+Fischl
+level
+80 → 90
+```
+
+---
+
+# 26. Compound changes
+
+UI không nên hiện:
+
+```text
+Level 80→81
+81→82
+...
+```
+
+Snapshot chỉ biết:
+
+```text
+80 → 90
+```
+
+đây là một event.
+
+Tương tự:
+
+```text
+Skill 8 → 10
+```
+
+---
+
+# 27. History Event
+
+Để UI dễ render, có thể normalize diff thành:
+
+```python
+class HistoryEvent:
+    id: str
+
+    account_id: str
+    snapshot_id: str
+
+    created_at: datetime
+
+    event_type: HistoryEventType
+
+    character_key: str | None
+
+    payload: dict
+```
+
+---
+
+# 28. HistoryEventType
+
+Ví dụ:
+
+```text
+CHARACTER_ACQUIRED
+CHARACTER_LEVEL_CHANGED
+CHARACTER_ASCENDED
+CONSTELLATION_CHANGED
+
+TALENT_CHANGED
+
+WEAPON_CHANGED
+WEAPON_LEVEL_CHANGED
+
+ARTIFACT_LOADOUT_CHANGED
+
+TEAM_CHANGED
+
+CHARACTER_COMPLETED
+CHARACTER_REOPENED
+
+ACCOUNT_PROGRESS_CHANGED
+```
+
+---
+
+# 29. Derived history events
+
+Một số event đến trực tiếp từ snapshot:
+
+```text
+LEVEL_CHANGED
+```
+
+Một số event là derived:
+
+```text
+CHARACTER_COMPLETED
+```
+
+vì nó phụ thuộc CharacterTarget.
+
+Phải phân biệt.
+
+---
+
+# 30. Event source
+
+```python
+class EventSource(Enum):
+    SNAPSHOT = "snapshot"
+    CONFIG = "config"
+    DERIVED = "derived"
+```
+
+Ví dụ:
+
+```text
+Skill 8→9
+source SNAPSHOT
+```
+
+```text
+Character COMPLETE
+source DERIVED
+```
+
+---
+
+# 31. Config History
+
+Target/Tier thay đổi không phải account progression.
+
+Cần log riêng:
+
+```text
+CONFIG_CHANGED
+```
+
+Ví dụ:
+
+```text
+Fischl target Skill:
+9 → 10
+```
+
+không được hiện như:
+
+```text
+Fischl became weaker
+```
+
+---
+
+# 32. Character target persistence
+
+Không update destructive một row duy nhất.
+
+Có versioning.
+
+```python
+class CharacterTargetVersion:
+    id: str
+
+    account_id: str
+    character_key: str
+
+    version: int
+
+    config_json: dict
+
+    created_at: datetime
+
+    supersedes_id: str | None
+```
+
+Current target:
+
+```text
+latest version
+```
+
+---
+
+# 33. Vì sao version target
+
+Nếu history nói:
+
+```text
+Character Complete Sep 20
+```
+
+sau đó Sep 25 user tăng target:
+
+```text
+Talent 9 → 10
+```
+
+character có thể thành:
+
+```text
+NEAR_COMPLETE
+```
+
+Điều đó không có nghĩa history trước sai.
+
+Nó hoàn thành **theo target version cũ**.
+
+---
+
+# 34. Tier Config Version
+
+Tương tự:
+
+```python
+class TierConfigVersion:
+    id: str
+
+    account_id: str
+
+    version: int
+    tiers_json: dict
+    assignments_json: dict
+
+    created_at: datetime
+```
+
+---
+
+# 35. Priority override persistence
+
+Override không cần full versioning phức tạp.
+
+```python
+class PriorityOverride:
+    account_id: str
+    character_key: str
+
+    mode: str
+
+    updated_at: datetime
+```
+
+Có thể history log:
+
+```text
+PRIORITY_OVERRIDE_CHANGED
+```
+
+nhưng không bắt buộc.
+
+---
+
+# 36. Material Inventory State
+
+Vì nhập tay và mutable:
+
+```python
+class MaterialInventoryEntry:
+    account_id: str
+    material_key: str
+
+    quantity: int | None
+
+    updated_at: datetime
+```
+
+---
+
+# 37. Inventory version
+
+Ngoài entry, cần một version aggregate:
+
+```python
+class InventoryVersion:
+    id: str
+    account_id: str
+
+    version: int
+    created_at: datetime
+```
+
+Mỗi bulk save:
+
+```text
+version + 1
+```
+
+Planner cache có thể dùng version này.
+
+---
+
+# 38. Không cần full inventory history v1
+
+Không nhất thiết lưu mọi quantity cũ.
+
+V1 chỉ cần current values.
+
+Nếu muốn backup:
+
+```text
+backup export
+```
+
+đã đủ.
+
+Sau này có thể snapshot inventory riêng.
+
+---
+
+# 39. Akasha persistence
+
+```python
+class AkashaEvaluationRecord:
+    id: str
+
+    account_id: str
+    character_key: str
+
+    imported_at: datetime
+
+    raw_json: dict
+    normalized_json: dict
+
+    parser_confidence: float
+
+    status: str
+
+    image_hash: str | None
+    image_path: str | None
+
+    artifact_fingerprint: str | None
+```
+
+---
+
+# 40. Latest confirmed Akasha
+
+Repository:
+
+```python
+get_latest_confirmed_akasha(
+    account_id,
+    character_key
+)
+```
+
+Planner không tự query pending evaluation.
+
+---
+
+# 41. Akasha history
+
+Không overwrite record cũ.
+
+Nếu upload bản mới:
+
+```text
+old = SUPERSEDED
+new = CONFIRMED
+```
+
+hoặc đơn giản giữ nhiều confirmed và dùng timestamp mới nhất.
+
+Tôi thích explicit:
+
+```text
+SUPERSEDED
+```
+
+để debug dễ.
+
+---
+
+# 42. Planner Config Version
+
+Planner weights phải version.
+
+```python
+class PlannerConfigVersion:
+    id: str
+
+    account_id: str
+
+    version: int
+
+    config_json: dict
+
+    created_at: datetime
+```
+
+---
+
+# 43. Planner Run
+
+Plan không phải source of truth, nhưng có thể lưu metadata mỗi lần planner chạy.
+
+```python
+class PlannerRun:
+    id: str
+
+    account_id: str
+
+    created_at: datetime
+
+    snapshot_id: str
+
+    target_config_version: int
+    tier_config_version: int
+    planner_config_version: int
+    inventory_version: int
+    artifact_quality_version: int
+    game_data_version: str
+
+    result_hash: str
+```
+
+---
+
+# 44. Có cần lưu toàn plan không?
+
+Không bắt buộc.
+
+Tôi đề xuất v1:
+
+```text
+PlannerRun metadata
++
+optional serialized result
+```
+
+Có thể giữ:
+
+```text
+result_json
+```
+
+cho debug.
+
+Nhưng frontend không coi DB plan cũ là authoritative.
+
+---
+
+# 45. Vì sao lưu PlannerRun hữu ích
+
+Nếu cậu nói:
+
+> Hôm qua app bảo tôi farm artifact, hôm nay lại bảo talent.
+
+Ta có thể xem:
+
+```text
+planner run yesterday
+vs
+today
+```
+
+và biết:
+
+```text
+snapshot đổi?
+inventory đổi?
+tier đổi?
+weights đổi?
+Akasha đổi?
+```
+
+---
+
+# 46. Planner Context Fingerprint
+
+Mỗi run tạo:
+
+```text
+context_hash
+```
+
+từ:
+
+```text
+snapshot_id
+target version
+tier version
+inventory version
+Akasha current IDs
+planner version
+game data version
+```
+
+Nếu context không đổi:
+
+```text
+không cần recalculate
+```
+
+có thể reuse cache.
+
+---
+
+# 47. Planner Engine Version
+
+Ngoài config version còn:
+
+```text
+engine_version
+```
+
+Ví dụ:
+
+```text
+1.0.0
+1.1.0
+```
+
+Nếu code scoring thay đổi nhưng config giống nhau:
+
+```text
+plan có thể khác
+```
+
+History phải biết.
+
+---
+
+# 48. Account Progress Snapshot
+
+Có thể lưu derived metric:
+
+```python
+class ProgressRecord:
+    account_id: str
+    snapshot_id: str
+
+    completion_score: float
+    complete_characters: int
+    total_characters: int
+
+    target_config_version: int
+
+    calculated_at: datetime
+```
+
+---
+
+# 49. Progress phụ thuộc target
+
+Ví dụ:
+
+```text
+Sep 23 completion 70%
+```
+
+theo:
+
+```text
+Target Config v3
+```
+
+Nếu sau đó target tăng:
+
+```text
+completion có thể xuống 65%
+```
+
+dù account không yếu đi.
+
+UI cần phân biệt.
+
+---
+
+# 50. Hai loại progress change
+
+```text
+ACCOUNT_PROGRESS
+```
+
+do game state tốt hơn.
+
+```text
+TARGET_REBASE
+```
+
+do tiêu chuẩn thay đổi.
+
+Không nên trộn.
+
+---
+
+# 51. History UI nên nói rõ
+
+Ví dụ:
+
+```text
+Sep 23
+Account Progress 61% → 64%
+Fischl Lv80 → 90
+Fischl Skill 8 → 9
+```
+
+Khác:
+
+```text
+Sep 25
+Targets updated
+Account completion recalculated:
+64% → 61%
+```
+
+Không tạo cảm giác user mất progression.
+
+---
+
+# 52. Character completion history
+
+Khi snapshot mới làm một character đạt target:
+
+```text
+CHARACTER_COMPLETED
+```
+
+Ví dụ:
+
+```text
+Fischl build completed
+```
+
+Nếu user sau đó tăng target:
+
+```text
+CHARACTER_REOPENED
+reason = TARGET_CHANGED
+```
+
+Không xóa event COMPLETE cũ.
+
+---
+
+# 53. Artifact completion history
+
+Nếu Akasha upload mới:
+
+```text
+Artifact BELOW_TARGET
+→ COMPLETE
+```
+
+History:
+
+```text
+Lauma artifact target reached
+```
+
+Đây không cần GOOD snapshot.
+
+Akasha update cũng có thể tạo derived history event.
+
+---
+
+# 54. Snapshot timeline
+
+Timeline chính nên lấy:
+
+```text
+AccountSnapshot
+```
+
+làm mốc.
+
+Ví dụ:
+
+```text
+Sep 23
+Snapshot #14
+
+Sep 27
+Snapshot #15
+
+Oct 03
+Snapshot #16
+```
+
+Giữa đó có thể có:
+
+```text
+Akasha update
+Target change
+Tier change
+```
+
+nhưng không phải tất cả đều phải hiện mặc định.
+
+---
+
+# 55. History filters
+
+UI nên hỗ trợ:
+
+```text
+All
+Account Progress
+Characters
+Artifacts
+Config Changes
+```
+
+Không cần v1 tất cả filter nâng cao, nhưng schema nên hỗ trợ.
+
+---
+
+# 56. History summary
+
+Mỗi snapshot diff có thể synthesize:
+
+```text
+3 character upgrades
+2 talent upgrades
+1 weapon upgrade
+1 build completed
+```
+
+Không cần AI.
+
+Deterministic summary.
+
+---
+
+# 57. Plan Completion Detection
+
+Không tick task bằng tay làm source of truth.
+
+Ví dụ old plan:
+
+```text
+Upgrade Fischl Skill 8 → 9
+```
+
+snapshot mới:
+
+```text
+Skill = 9
+```
+
+Backend detect:
+
+```text
+action satisfied
+```
+
+---
+
+# 58. Goal satisfaction
+
+Mỗi UpgradeGoal phải có:
+
+```python
+def is_satisfied(state) -> bool:
+    ...
+```
+
+Ví dụ:
+
+```text
+LEVEL goal 80→90
+```
+
+satisfied nếu:
+
+```text
+current_level >= 90
+```
+
+---
+
+# 59. Partial progress
+
+Old goal:
+
+```text
+Weapon 20 → 90
+```
+
+new state:
+
+```text
+Weapon 70
+```
+
+Goal chưa complete nhưng:
+
+```text
+progress advanced
+```
+
+History có thể ghi:
+
+```text
+Weapon 20 → 70
+```
+
+Planner regenerate:
+
+```text
+Weapon 70 → 90
+```
+
+---
+
+# 60. Old action IDs không phải permanent identity
+
+Sau recalc:
+
+```text
+action_123
+```
+
+có thể biến mất.
+
+Không nên frontend giữ state dựa vào action ID lâu dài.
+
+Action ID chỉ có nghĩa trong PlannerRun/context.
+
+---
+
+# 61. Stable Goal Key
+
+Ngoài action ID, có thể có semantic:
+
+```text
+character:Fischl:talent:skill
+```
+
+để correlate across runs.
+
+Ví dụ:
+
+```python
+goal_key = "Fischl:TALENT_SKILL"
+```
+
+Target thay đổi:
+
+```text
+8→9
+9→10
+```
+
+vẫn cùng family goal.
+
+---
+
+# 62. Snapshot retention
+
+Vì GOOD file không quá lớn:
+
+```text
+giữ toàn bộ snapshots
+```
+
+v1.
+
+Không cần cleanup tự động.
+
+---
+
+# 63. Image retention
+
+Akasha images có thể chiếm hơn.
+
+Settings:
+
+```text
+Keep uploaded Akasha images
+[✓]
+```
+
+Default:
+
+```text
+true
+```
+
+cho project cá nhân.
+
+Sau này có cleanup.
+
+---
+
+# 64. Backup
+
+App phải export:
+
+```text
+backup.zip
+```
+
+hoặc:
+
+```text
+backup.json + files
+```
+
+Nội dung:
+
+```text
+character targets
+tiers
+priority overrides
+inventory
+Akasha evaluations
+planner config
+snapshot metadata
+```
+
+Có thể bao gồm raw GOOD snapshots.
+
+---
+
+# 65. Backup v1 đơn giản
+
+Để dễ implement:
+
+```text
+backup/
+├── app_data.json
+├── snapshots/
+└── akasha/
+```
+
+zip lại.
+
+---
+
+# 66. Backup metadata
+
+```json
+{
+  "schemaVersion": 1,
+  "exportedAt": "...",
+  "appVersion": "...",
+  "databaseVersion": 1
+}
+```
+
+---
+
+# 67. Restore
+
+Restore không merge thông minh ở v1.
+
+Có thể:
+
+```text
+Restore backup
+→ replace local application data
+```
+
+UI phải warning.
+
+Merge để sau.
+
+---
+
+# 68. Database Migration
+
+Bắt buộc dùng migration system.
+
+Ví dụ:
+
+```text
+Alembic
+```
+
+Không tạo table thủ công khi startup mãi.
+
+Khi schema:
+
+```text
+v1 → v2
+```
+
+database upgrade có kiểm soát.
+
+---
+
+# 69. Schema version
+
+Database có:
+
+```text
+schema_version
+```
+
+hoặc Alembic revision.
+
+Backup phải biết version.
+
+---
+
+# 70. Local data directory
+
+Đề xuất:
+
+```text
+data/
+├── app.db
+├── snapshots/
+├── uploads/
+│   └── akasha/
+├── backups/
+└── logs/
+```
+
+Không rải file quanh repository.
+
+---
+
+# 71. Dev vs Production data
+
+Developer mode:
+
+```text
+data/dev/
+```
+
+Personal app:
+
+```text
+data/main/
+```
+
+Tránh test phá account thật.
+
+---
+
+# 72. Test Database
+
+Tests luôn dùng:
+
+```text
+temporary SQLite
+```
+
+Không dùng `data/app.db`.
+
+---
+
+# 73. Transaction boundaries
+
+Các thao tác phải atomic:
+
+```text
+GOOD import
+Target bulk import
+Tier bulk import
+Inventory bulk update
+Akasha confirm batch
+Backup restore
+```
+
+Fail giữa chừng:
+
+```text
+rollback
+```
+
+---
+
+# 74. Repository Pattern
+
+Planner không gọi SQLAlchemy session trực tiếp.
+
+Ví dụ:
+
+```python
+AccountRepository
+SnapshotRepository
+TargetRepository
+TierRepository
+InventoryRepository
+AkashaRepository
+HistoryRepository
+```
+
+Planner nhận domain objects.
+
+---
+
+# 75. Snapshot Repository
+
+```python
+class SnapshotRepository:
+
+    def get_current(account_id):
+        ...
+
+    def get(snapshot_id):
+        ...
+
+    def create_from_normalized(...):
+        ...
+
+    def list_history(account_id):
+        ...
+```
+
+---
+
+# 76. History Repository
+
+```python
+class HistoryRepository:
+
+    def get_snapshot_diff(
+        from_snapshot,
+        to_snapshot,
+    ):
+        ...
+
+    def list_events(
+        account_id,
+        filters=None,
+    ):
+        ...
+```
+
+---
+
+# 77. Planner Cache Repository
+
+Optional:
+
+```python
+class PlannerRunRepository:
+    def find_by_context_hash(...):
+        ...
+```
+
+Nếu chưa cần performance:
+
+```text
+skip cache v1
+```
+
+vẫn lưu metadata được.
+
+---
+
+# 78. Frontend History API
+
+```text
+GET /api/history
+```
+
+Response:
+
+```json
+{
+  "snapshots": [
+    {
+      "id": "snapshot_15",
+      "createdAt": "...",
+      "progress": 0.64,
+      "summary": {
+        "characterChanges": 4,
+        "talentChanges": 2,
+        "weaponChanges": 1,
+        "completedCharacters": 1
+      }
+    }
+  ]
+}
+```
+
+---
+
+# 79. Snapshot detail API
+
+```text
+GET /api/history/{snapshotId}
+```
+
+trả:
+
+```text
+snapshot metadata
+diff from previous
+progress
+events
+```
+
+---
+
+# 80. Compare arbitrary snapshots
+
+Rất hữu ích sau này:
+
+```text
+GET /api/history/compare?from=X&to=Y
+```
+
+Ví dụ:
+
+```text
+Sep 23 → Oct 23
+```
+
+trả một tháng account đã thay đổi gì.
+
+Không bắt buộc frontend v1.
+
+---
+
+# 81. Current State API
+
+```text
+GET /api/account
+```
+
+trả:
+
+```text
+current snapshot
+account progress
+data health
+```
+
+---
+
+# 82. Data Health
+
+Backend nên tổng hợp:
+
+```python
+class DataHealth:
+    missing_targets: int
+    missing_tiers: int
+    missing_akasha: int
+    unknown_inventory_materials: int
+    missing_game_data: int
+```
+
+Homepage/settings có thể warning.
+
+---
+
+# 83. Data Health không phải Planner error
+
+Ví dụ:
+
+```text
+20 characters missing Akasha
+```
+
+Planner vẫn chạy phần còn lại.
+
+Không crash toàn app.
+
+---
+
+# 84. Import rollback
+
+Nếu GOOD có:
+
+```text
+unknown character
+```
+
+không nhất thiết fail toàn snapshot.
+
+Có thể:
+
+```text
+import snapshot
++
+mark unresolved entity
+```
+
+Chỉ fail nếu JSON/schema corrupt.
+
+---
+
+# 85. Unknown entity preservation
+
+Nếu GameData chưa biết character mới:
+
+Snapshot vẫn lưu:
+
+```text
+character_key
+level
+talent
+...
+```
+
+Planner báo:
+
+```text
+GAME_DATA_MISSING
+```
+
+Sau update GameData:
+
+```text
+same snapshot
+```
+
+có thể được phân tích lại.
+
+---
+
+# 86. Derived data regeneration
+
+Khi:
+
+```text
+GameData updated
+Planner Engine updated
+Quality thresholds changed
+```
+
+không migrate snapshot data.
+
+Chỉ:
+
+```text
+recalculate derived state
+```
+
+---
+
+# 87. No destructive recalculation
+
+Never rewrite:
+
+```text
+historical GOOD snapshots
+historical Akasha raw metrics
+```
+
+chỉ derived result đổi.
+
+---
+
+# 88. Planner Run Reason
+
+Mỗi run có trigger:
+
+```text
+GOOD_IMPORTED
+TARGET_CHANGED
+TIER_CHANGED
+INVENTORY_CHANGED
+AKASHA_CHANGED
+PLANNER_CONFIG_CHANGED
+GAME_DATA_CHANGED
+MANUAL_RECALCULATE
+DAY_CHANGED
+```
+
+Hữu ích cho debug.
+
+---
+
+# 89. Daily plan refresh
+
+Qua ngày mới:
+
+```text
+Global Plan
+```
+
+có thể không đổi.
+
+```text
+Today Plan
+```
+
+phải regenerate vì domain availability đổi.
+
+Không cần account snapshot mới.
+
+---
+
+# 90. Today Plan không cần persist
+
+Nó phụ thuộc:
+
+```text
+current day
+```
+
+nên derive on request/cache ngắn.
+
+Không đáng lưu historical mỗi ngày ở v1.
+
+---
+
+# 91. Planner Result Hash
+
+Serialize deterministic fields:
+
+```text
+global ranking
+goal targets
+scores
+```
+
+hash.
+
+Nếu hash giống run trước:
+
+```text
+plan effectively unchanged
+```
+
+Không cần tạo noisy history event.
+
+---
+
+# 92. Recommendation History
+
+V1 không cần timeline:
+
+```text
+app recommended A
+app recommended B
+```
+
+cho user-facing UI.
+
+Nhưng PlannerRun lưu đủ để debug.
+
+---
+
+# 93. Feedback persistence
+
+Nếu sau này có:
+
+```text
+👍 / 👎 recommendation
+```
+
+table:
+
+```python
+class PlannerFeedback:
+    planner_run_id: str
+    goal_key: str
+
+    rating: str
+    reason: str | None
+
+    created_at: datetime
+```
+
+Không dùng ML tự động.
+
+---
+
+# 94. Database privacy
+
+Vì local-first:
+
+```text
+account data remains local
+```
+
+Không cần user auth v1.
+
+Nếu sau này deploy web/cloud:
+
+```text
+authentication
+encryption
+multi-user isolation
+```
+
+là project khác.
+
+---
+
+# 95. Corruption recovery
+
+Startup:
+
+```text
+check database integrity
+```
+
+Nếu fail:
+
+```text
+show restore backup
+```
+
+Không tự overwrite DB.
+
+---
+
+# 96. Auto Backup
+
+Rất đáng có:
+
+Trước:
+
+```text
+database migration
+backup restore
+```
+
+tạo:
+
+```text
+automatic backup
+```
+
+Sau này có thể auto backup hàng tuần.
+
+V1 manual backup là đủ.
+
+---
+
+# 97. Minimum database tables cho MVP
+
+Nếu muốn bắt đầu cực gọn:
+
+```text
+accounts
+account_snapshots
+snapshot_characters
+snapshot_weapons
+snapshot_artifacts
+snapshot_teams
+
+character_target_versions
+tier_config_versions
+priority_overrides
+
+material_inventory
+
+akasha_evaluations
+
+planner_config_versions
+```
+
+History/diff có thể tính runtime trước.
+
+---
+
+# 98. Phase 2 tables
+
+Sau khi MVP ổn:
+
+```text
+planner_runs
+history_events
+progress_records
+feedback
+```
+
+Không cần block MVP.
+
+---
+
+# 99. Acceptance Scenario
+
+### Snapshot 1
+
+```text
+Fischl
+Lv80
+Skill8
+```
+
+Planner:
+
+```text
+Ascend / Level / Skill goals
+```
+
+### User imports Snapshot 2
+
+```text
+Fischl
+Lv90
+Skill9
+```
+
+Database:
+
+```text
+Snapshot 1 preserved
+Snapshot 2 created
+current_snapshot_id = 2
+```
+
+Diff:
+
+```text
+Level 80 → 90
+Skill 8 → 9
+```
+
+Planner regenerate:
+
+```text
+old completed goals disappear
+remaining Skill9→10 may remain
+```
+
+History:
+
+```text
+Fischl Lv80 → 90
+Fischl Skill8 → 9
+```
+
+---
+
+# 100. Config-change Scenario
+
+Current:
+
+```text
+Fischl Skill9
+Target Skill9
+→ COMPLETE
+```
+
+User changes target:
+
+```text
+9 → 10
+```
+
+Không có GOOD snapshot mới.
+
+Database:
+
+```text
+Target version +1
+```
+
+Planner:
+
+```text
+Skill9→10 generated
+```
+
+Character:
+
+```text
+COMPLETE
+→ NEAR_COMPLETE
+```
+
+History reason:
+
+```text
+TARGET_CHANGED
+```
+
+Không ghi:
+
+```text
+Fischl lost progression
+```
+
+---
+
+# 101. Akasha Scenario
+
+Latest:
+
+```text
+Lauma Artifact .55
+Target .80
+```
+
+Planner:
+
+```text
+Artifact goal active
+```
+
+Upload new confirmed Akasha:
+
+```text
+.83
+```
+
+Database giữ cả hai evaluation.
+
+Planner regenerate:
+
+```text
+ArtifactGoal disappears
+```
+
+History:
+
+```text
+Lauma artifact target reached
+```
+
+---
+
+# 102. Database Definition of Done
+
+Persistence layer v1 hoàn thành khi:
+
+```text
+GOOD import tạo immutable snapshot
+
+current snapshot được resolve chính xác
+
+snapshot cũ không bị overwrite
+
+target/tier có version
+
+inventory persist qua GOOD imports
+
+Akasha history persist
+
+plan có thể regenerate từ source data
+
+snapshot diff hoạt động
+
+config changes phân biệt với account changes
+
+backup/restore khả dụng
+
+database migration hoạt động
+```
+
+---
+
+# 103. Nguyên tắc cuối cùng
+
+Database lưu:
+
+> Chuyện gì thực sự đã xảy ra?
+
+Snapshot lưu:
+
+> Account trong game lúc đó trông như thế nào?
+
+Config lưu:
+
+> Cậu muốn Planner đánh giá account theo tiêu chuẩn nào?
+
+Planner Run lưu:
+
+> Với account + config đó, engine đã suy ra điều gì?
+
+History hiển thị:
+
+> Account đã tiến triển ra sao theo thời gian?
+
+Không lớp nào được thay thế vai trò của lớp khác.

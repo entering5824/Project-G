@@ -1,0 +1,504 @@
+{
+  "version": 1,
+  "ratings": {
+    "Citlali": {
+      "score": 67,
+      "notes": ""
+    },
+    "Columbina": {
+      "score": 67,
+      "notes": ""
+    },
+    "Durin": {
+      "score": 67,
+      "notes": ""
+    },
+    "Escoffier": {
+      "score": 67,
+      "notes": ""
+    },
+    "Flins": {
+      "score": 67,
+      "notes": ""
+    },
+    "Furina": {
+      "score": 67,
+      "notes": ""
+    },
+    "Ineffa": {
+      "score": 67,
+      "notes": ""
+    },
+    "Lauma": {
+      "score": 67,
+      "notes": ""
+    },
+    "Linnea": {
+      "score": 67,
+      "notes": ""
+    },
+    "Lohen": {
+      "score": 67,
+      "notes": ""
+    },
+    "Mavuika": {
+      "score": 67,
+      "notes": ""
+    },
+    "Nefer": {
+      "score": 67,
+      "notes": ""
+    },
+    "Nicole": {
+      "score": 67,
+      "notes": ""
+    },
+    "Odette": {
+      "score": 67,
+      "notes": ""
+    },
+    "Sandrone": {
+      "score": 67,
+      "notes": ""
+    },
+    "Skirk": {
+      "score": 67,
+      "notes": ""
+    },
+    "Xilonen": {
+      "score": 67,
+      "notes": ""
+    },
+    "Zibai": {
+      "score": 67,
+      "notes": ""
+    },
+    "Bennett": {
+      "score": 67,
+      "notes": ""
+    },
+    "Arlecchino": {
+      "score": 50,
+      "notes": ""
+    },
+    "Chasca": {
+      "score": 50,
+      "notes": ""
+    },
+    "Emilie": {
+      "score": 50,
+      "notes": ""
+    },
+    "KaedeharaKazuha": {
+      "score": 50,
+      "notes": ""
+    },
+    "Kinich": {
+      "score": 50,
+      "notes": ""
+    },
+    "Nahida": {
+      "score": 50,
+      "notes": ""
+    },
+    "Navia": {
+      "score": 50,
+      "notes": ""
+    },
+    "Neuvillette": {
+      "score": 50,
+      "notes": ""
+    },
+    "Varesa": {
+      "score": 50,
+      "notes": ""
+    },
+    "Varka": {
+      "score": 50,
+      "notes": ""
+    },
+    "Venti": {
+      "score": 50,
+      "notes": ""
+    },
+    "Wriothesley": {
+      "score": 50,
+      "notes": ""
+    },
+    "YaeMiko": {
+      "score": 50,
+      "notes": ""
+    },
+    "Yelan": {
+      "score": 50,
+      "notes": ""
+    },
+    "Zhongli": {
+      "score": 50,
+      "notes": ""
+    },
+    "Alyosha": {
+      "score": 50,
+      "notes": ""
+    },
+    "Fischl": {
+      "score": 50,
+      "notes": ""
+    },
+    "Illuga": {
+      "score": 50,
+      "notes": ""
+    },
+    "Sucrose": {
+      "score": 50,
+      "notes": ""
+    },
+    "Albedo": {
+      "score": 34,
+      "notes": ""
+    },
+    "Baizhu": {
+      "score": 34,
+      "notes": ""
+    },
+    "Chiori": {
+      "score": 34,
+      "notes": ""
+    },
+    "HuTao": {
+      "score": 34,
+      "notes": ""
+    },
+    "Klee": {
+      "score": 34,
+      "notes": ""
+    },
+    "SangonomiyaKokomi": {
+      "score": 34,
+      "notes": ""
+    },
+    "Mona": {
+      "score": 34,
+      "notes": ""
+    },
+    "Nilou": {
+      "score": 34,
+      "notes": ""
+    },
+    "Qiqi": {
+      "score": 34,
+      "notes": ""
+    },
+    "RaidenShogun": {
+      "score": 34,
+      "notes": ""
+    },
+    "Shenhe": {
+      "score": 34,
+      "notes": ""
+    },
+    "Sigewinne": {
+      "score": 34,
+      "notes": ""
+    },
+    "Wanderer": {
+      "score": 34,
+      "notes": ""
+    },
+    "Aino": {
+      "score": 34,
+      "notes": ""
+    },
+    "Chevreuse": {
+      "score": 34,
+      "notes": ""
+    },
+    "Diona": {
+      "score": 34,
+      "notes": ""
+    },
+    "Iansan": {
+      "score": 34,
+      "notes": ""
+    },
+    "KukiShinobu": {
+      "score": 34,
+      "notes": ""
+    },
+    "Ororon": {
+      "score": 34,
+      "notes": ""
+    },
+    "Xiangling": {
+      "score": 34,
+      "notes": ""
+    },
+    "Xingqiu": {
+      "score": 34,
+      "notes": ""
+    },
+    "Alhaitham": {
+      "score": 17,
+      "notes": ""
+    },
+    "KamisatoAyaka": {
+      "score": 17,
+      "notes": ""
+    },
+    "KamisatoAyato": {
+      "score": 17,
+      "notes": ""
+    },
+    "Tartaglia": {
+      "score": 17,
+      "notes": ""
+    },
+    "Clorinde": {
+      "score": 17,
+      "notes": ""
+    },
+    "Cyno": {
+      "score": 17,
+      "notes": ""
+    },
+    "Eula": {
+      "score": 17,
+      "notes": ""
+    },
+    "Ganyu": {
+      "score": 17,
+      "notes": ""
+    },
+    "AratakiItto": {
+      "score": 17,
+      "notes": ""
+    },
+    "Keqing": {
+      "score": 17,
+      "notes": ""
+    },
+    "Lyney": {
+      "score": 17,
+      "notes": ""
+    },
+    "Mualani": {
+      "score": 17,
+      "notes": ""
+    },
+    "Tighnari": {
+      "score": 17,
+      "notes": ""
+    },
+    "TravelerDendro": {
+      "score": 17,
+      "notes": ""
+    },
+    "Xianyun": {
+      "score": 17,
+      "notes": ""
+    },
+    "Xiao": {
+      "score": 17,
+      "notes": ""
+    },
+    "Yoimiya": {
+      "score": 17,
+      "notes": ""
+    },
+    "Beidou": {
+      "score": 17,
+      "notes": ""
+    },
+    "Charlotte": {
+      "score": 17,
+      "notes": ""
+    },
+    "Chongyun": {
+      "score": 17,
+      "notes": ""
+    },
+    "Faruzan": {
+      "score": 17,
+      "notes": ""
+    },
+    "Gorou": {
+      "score": 17,
+      "notes": ""
+    },
+    "LanYan": {
+      "score": 17,
+      "notes": ""
+    },
+    "Layla": {
+      "score": 17,
+      "notes": ""
+    },
+    "Ningguang": {
+      "score": 17,
+      "notes": ""
+    },
+    "Noelle": {
+      "score": 17,
+      "notes": ""
+    },
+    "Prune": {
+      "score": 17,
+      "notes": ""
+    },
+    "Yaoyao": {
+      "score": 17,
+      "notes": ""
+    },
+    "Aloy": {
+      "score": 0,
+      "notes": ""
+    },
+    "Dehya": {
+      "score": 0,
+      "notes": ""
+    },
+    "Diluc": {
+      "score": 0,
+      "notes": ""
+    },
+    "Jean": {
+      "score": 0,
+      "notes": ""
+    },
+    "TravelerAnemo": {
+      "score": 0,
+      "notes": ""
+    },
+    "TravelerElectro": {
+      "score": 0,
+      "notes": ""
+    },
+    "TravelerGeo": {
+      "score": 0,
+      "notes": ""
+    },
+    "TravelerHydro": {
+      "score": 0,
+      "notes": ""
+    },
+    "TravelerPyro": {
+      "score": 0,
+      "notes": ""
+    },
+    "YumemizukiMizuki": {
+      "score": 0,
+      "notes": ""
+    },
+    "Amber": {
+      "score": 0,
+      "notes": ""
+    },
+    "Barbara": {
+      "score": 0,
+      "notes": ""
+    },
+    "Candace": {
+      "score": 0,
+      "notes": ""
+    },
+    "Collei": {
+      "score": 0,
+      "notes": ""
+    },
+    "Dahlia": {
+      "score": 0,
+      "notes": ""
+    },
+    "Dori": {
+      "score": 0,
+      "notes": ""
+    },
+    "Freminet": {
+      "score": 0,
+      "notes": ""
+    },
+    "Gaming": {
+      "score": 0,
+      "notes": ""
+    },
+    "ShikanoinHeizou": {
+      "score": 0,
+      "notes": ""
+    },
+    "Ifa": {
+      "score": 0,
+      "notes": ""
+    },
+    "Jahoda": {
+      "score": 0,
+      "notes": ""
+    },
+    "Kachina": {
+      "score": 0,
+      "notes": ""
+    },
+    "Kaeya": {
+      "score": 0,
+      "notes": ""
+    },
+    "Kaveh": {
+      "score": 0,
+      "notes": ""
+    },
+    "Kirara": {
+      "score": 0,
+      "notes": ""
+    },
+    "Lisa": {
+      "score": 0,
+      "notes": ""
+    },
+    "Lynette": {
+      "score": 0,
+      "notes": ""
+    },
+    "Mika": {
+      "score": 0,
+      "notes": ""
+    },
+    "Razor": {
+      "score": 0,
+      "notes": ""
+    },
+    "Rosaria": {
+      "score": 0,
+      "notes": ""
+    },
+    "KujouSara": {
+      "score": 0,
+      "notes": ""
+    },
+    "Sayu": {
+      "score": 0,
+      "notes": ""
+    },
+    "Sethos": {
+      "score": 0,
+      "notes": ""
+    },
+    "Thoma": {
+      "score": 0,
+      "notes": ""
+    },
+    "Xinyan": {
+      "score": 0,
+      "notes": ""
+    },
+    "Yanfei": {
+      "score": 0,
+      "notes": ""
+    },
+    "YunJin": {
+      "score": 0,
+      "notes": ""
+    }
+  },
+  "minimumTierForRoadmap": "B",
+  "controls": {},
+  "selectedSets": {}
+}
