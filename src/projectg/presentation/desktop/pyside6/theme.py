@@ -11,46 +11,60 @@ Design spec: design.ms (Genshin / Project G visual design principles)
 from string import Template
 from pathlib import Path
 import sys
+from PySide6.QtGui import QFontDatabase
 
 # ---------------------------------------------------------------------------
 # §4.1  Global dark palette
 # ---------------------------------------------------------------------------
 COLORS = dict(
     # canvas / surfaces
-    background='#0C1018',        # bg-canvas
-    elevated='#121824',          # bg-elevated
-    surface='rgba(24,32,46,0.72)',      # bg-panel (approximated as opaque for Qt)
-    surface_strong='rgba(28,38,54,0.88)',  # bg-panel-strong
+    background='#E9F1F3',
+    elevated='#F7FBFB',
+    surface='rgba(248,252,252,0.78)',
+    surface_strong='rgba(250,253,252,0.92)',
 
     # sidebar (slightly elevated, warm teal-navy)
-    sidebar='#16202e',
+    sidebar='#243E55',
 
     # text
-    text='#F3F5F7',              # text-primary
-    secondary='#B9C0CB',         # text-secondary
-    muted='#7F8998',             # text-muted
+    text='#243B50',
+    secondary='#5E7484',
+    muted='#748B99',
 
     # strokes
-    border='rgba(255,255,255,0.08)',    # stroke-soft
-    border_medium='rgba(255,255,255,0.14)',  # stroke-medium
+    border='rgba(87,120,140,0.16)',
+    border_medium='rgba(87,120,140,0.26)',
 
     # gold accents
-    accent='#D9C28B',            # gold-soft
-    accent_hover='#F0D89C',      # gold-highlight
-    accent_pressed='#C8A865',
+    accent='#C49E60',
+    accent_hover='#9D793E',
+    accent_pressed='#8D6B38',
 
     # semantic
-    success='#65D5C5',           # Anemo (positive / available)
-    warning='#E4B45D',           # Geo (warning / limited)
-    danger='#F06A58',            # Pyro (error / critical)
+    success='#427C60',
+    warning='#967542',
+    danger='#B4544B',
 
     # hover surface
-    hover='#1E2C3E',
+    hover='#E1EEF0',
 )
 
 # Standard Qt glyphs are bundled with the existing offline assets directory.
 _asset_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[5]))
 _glyphs = _asset_root / 'assets' / 'genshin-impact' / 'ui-controls'
+_font_file = _asset_root / 'assets' / 'genshin-impact' / 'fonts' / 'zhcn.ttf'
+_loaded_font_family = None
+
+
+def load_project_font() -> str:
+    """Register the user's HYWenHei 85W asset for all native Qt screens."""
+    global _loaded_font_family
+    if _loaded_font_family is not None:
+        return _loaded_font_family
+    font_id = QFontDatabase.addApplicationFont(str(_font_file)) if _font_file.is_file() else -1
+    families = QFontDatabase.applicationFontFamilies(font_id) if font_id >= 0 else []
+    _loaded_font_family = families[0] if families else 'Segoe UI'
+    return _loaded_font_family
 _style_tokens = {**COLORS, **{name: (_glyphs / f'{name}.png').as_posix()
                             for name in ('up', 'down', 'check')}}
 
@@ -60,9 +74,9 @@ _style_tokens = {**COLORS, **{name: (_glyphs / f'{name}.png').as_posix()
 DESKTOP_STYLE = Template('''
 /* ── Global reset ─────────────────────────────────────────────────────── */
 QWidget {
-  background: $background;
+  background: transparent;
   color: $text;
-  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  font-family: "HYWenHei", "Segoe UI", sans-serif;
   font-size: 14px;
   selection-background-color: $accent;
   selection-color: $background;
@@ -108,6 +122,9 @@ QLabel#eyebrow { color: $accent; font-size: 12px; font-weight: 600; }
 QLabel#metricLabel,
 QLabel#sidebarFooter,
 QLabel#brandSubtitle { color: $muted; font-size: 12px; }
+QLabel#materialAmount { color: $text; font-size: 14px; font-weight: 600; }
+QWidget#materialRow { background: transparent; }
+QWidget#detailTransparent { background: transparent; }
 
 /* ── Brand / sidebar labels ──────────────────────────────────────────── */
 QLabel#brandGlyph { color: $accent; font-size: 24px; font-weight: 700; }
@@ -437,6 +454,8 @@ QFrame#feedbackBanner[state="error"] { border-color: $danger; }
 
 from .premium_style import PREMIUM_STYLE
 DESKTOP_STYLE += PREMIUM_STYLE
+from .liquid_style import LIQUID_STYLE
+DESKTOP_STYLE += LIQUID_STYLE
 
 
 def set_state(widget, state: str) -> None:

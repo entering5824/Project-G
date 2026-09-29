@@ -43,14 +43,16 @@ def window():
 
 
 def test_keyboard_navigation_updates_page_context_and_search(window):
-    for index, title in enumerate(("Hôm nay", "Kế hoạch", "Nhân vật", "Điều chỉnh ưu tiên")):
+    for index, title in enumerate(("Hôm nay", "Kế hoạch", "Nhân vật", "Dữ liệu",
+                                   "Điều chỉnh ưu tiên")):
         QTest.keyClick(window, getattr(Qt.Key, f"Key_{index + 1}"), Qt.KeyboardModifier.ControlModifier)
         QApplication.processEvents()
         assert window.pages.currentIndex() == index
         assert window.page_title.text() == title
         assert window.page_description.text()
-        if index:
-            search = (window.roadmap_search, window.character_search, window.tier_search)[index - 1]
+        if index in (1, 2, 4):
+            search = {1: window.roadmap_search, 2: window.character_search,
+                      4: window.tier_search}[index]
             search.setText("Amber")
             QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
             assert search.hasFocus()
@@ -58,14 +60,16 @@ def test_keyboard_navigation_updates_page_context_and_search(window):
             assert search.isClearButtonEnabled()
 
 
-def test_navigation_uses_one_top_bar_at_every_size(window):
+def test_navigation_uses_rail_on_wide_windows_and_top_bar_when_compact(window):
     window.nav.setCurrentRow(2)
     window.resize(1260, 780)
     QApplication.processEvents()
-    assert window.nav.flow() == window.nav.Flow.LeftToRight
-    assert window.nav.item(3).isHidden()
-    assert window.sidebar.mapTo(window, window.sidebar.rect().bottomLeft()).y() < (
-        window.pages.mapTo(window, window.pages.rect().topLeft()).y())
+    assert window.nav.flow() == window.nav.Flow.TopToBottom
+    assert window.nav.item(3).text() == "Dữ liệu"
+    assert not window.nav.item(3).isHidden()
+    assert window.nav.item(4).isHidden()
+    assert window.sidebar.mapTo(window, window.sidebar.rect().topRight()).x() < (
+        window.pages.mapTo(window, window.pages.rect().topLeft()).x())
 
     window.resize(800, 560)
     QApplication.processEvents()
@@ -73,6 +77,36 @@ def test_navigation_uses_one_top_bar_at_every_size(window):
     assert window.sidebar.mapTo(window, window.sidebar.rect().bottomLeft()).y() < (
         window.pages.mapTo(window, window.pages.rect().topLeft()).y())
     assert window.pages.currentIndex() == 2
+
+
+def test_data_page_explains_empty_and_imported_account_states(window):
+    window.nav.setCurrentRow(3)
+    window._render_data({})
+    assert window.data_status.text() == "Chưa có dữ liệu tài khoản"
+    assert not window.data_health_button.isEnabled()
+    assert not window.data_backup_button.isEnabled()
+    before = window.account_file_count if hasattr(window, "account_file_count") else 0
+    window.data_import_button.click()
+    assert window.account_file_count == before + 1
+
+    window._render_data({"snapshotId": 7, "snapshotImportedAt": "2026-09-29T10:30:00",
+                         "characters": [{"key": "Amber"}, {"key": "YaeMiko"}]})
+    assert window.data_status.text() == "Dữ liệu đã sẵn sàng"
+    assert "2 nhân vật" in window.data_summary.text()
+    assert "29/09/2026 10:30" in window.data_imported_at.text()
+    QApplication.processEvents()
+    assert (window.data_imported_at.width() >=
+            window.data_imported_at.fontMetrics().horizontalAdvance(window.data_imported_at.text()))
+    assert window.data_health_button.isEnabled()
+    assert window.data_backup_button.isEnabled()
+    window._render_data({"snapshotId": 7, "characters": []})
+    assert window.data_status.text() == "Chưa có nhân vật trong dữ liệu"
+    assert window.data_import_button.text() == "Nhập lại dữ liệu"
+    window._loading = True
+    window._render_data({"snapshotId": 7})
+    assert not window.data_import_button.isEnabled()
+    assert not window.data_restore_button.isEnabled()
+    window._loading = False
 
 
 def test_refresh_shortcut_respects_disabled_action(window):
@@ -111,7 +145,7 @@ def test_cancel_result_export_does_not_write(window, monkeypatch, tmp_path):
 
 def test_global_actions_fit_small_window_on_all_pages(window):
     window.resize(800, 560)
-    for index in range(4):
+    for index in range(5):
         window.nav.setCurrentRow(index)
         QApplication.processEvents()
         assert window.minimumSizeHint().width() <= 800
@@ -132,7 +166,7 @@ def test_compact_tier_list_keeps_controls_and_rows_visible(window):
         "pack": {"minimumTierForRoadmap": "S+"}, "rows": [row]})
     window._render_tier_list()
     window.resize(800, 560)
-    window.nav.setCurrentRow(3)
+    window.nav.setCurrentRow(4)
     QApplication.processEvents()
     assert window.tier_table.viewport().height() >= 110
     assert window.tier_options_panel.isHidden()
@@ -190,6 +224,34 @@ def test_character_search_reports_no_matches_and_recovers_when_cleared(window):
     window.character_search.clear()
     assert all(not window.character_list.item(i).isHidden() for i in range(2))
     assert "2 / 2" in window.character_search_feedback.text()
+
+
+def test_compact_character_search_shortcut_focuses_visible_picker(window):
+    window.resize(800, 560)
+    window.nav.setCurrentRow(2)
+    QApplication.processEvents()
+    assert window.character_picker.isVisible()
+    assert not window.character_search.isVisible()
+    QTest.keyClick(window, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+    assert window.character_picker.lineEdit().hasFocus()
+
+
+def test_character_next_step_shows_availability_and_primary_action(window):
+    goal = {"rank": 1, "goalKey": "amber-skill", "character": {"key": "Amber"},
+            "type": "TALENT_SKILL", "current": {"value": 6},
+            "target": {"value": 8}, "status": "ACTIONABLE"}
+    task = {"primaryGoal": {"goalKey": "amber-skill"}, "availability": "AVAILABLE"}
+    window._render_roadmap({"roadmap": {"global": [goal]},
+                            "today": {"farming": [task]}})
+    window._data = {"characters": [{"key": "Amber", "target": None, "talents": {},
+                                     "level": 80, "ascension": 6, "weapon": None,
+                                     "artifacts": [], "teams": []}],
+                    "roadmap": {"global": [goal]}, "today": {"todayState": {}}}
+    window._render_characters(window._data)
+    window.nav.setCurrentRow(2)
+    assert window.char_next_status.text() == "Làm được ngay"
+    assert window.char_next_button.objectName() == "primaryButton"
+    assert window.char_next_button.isVisible()
 
 
 def test_roadmap_filter_feedback_respects_search_and_status(window):
@@ -254,7 +316,7 @@ def test_compact_tier_columns_preserve_hidden_values_in_payload(window):
            "setOptions": ["SetA"], "selectedSet": "SetA"}
     window.tier_pack_controller = SimpleNamespace(load=lambda: {"pack": pack, "rows": [row]})
     window._render_tier_list()
-    window.nav.setCurrentRow(3)
+    window.nav.setCurrentRow(4)
     window.resize(800, 560)
     QApplication.processEvents()
     assert window.tier_bands_scroll.isVisible()
@@ -402,12 +464,42 @@ def test_roadmap_empty_refresh_resets_previous_match_count(window):
     assert "0 / 0" in window.roadmap_search_feedback.text()
 
 
-def test_alternating_table_rows_use_dark_palette(window):
+def test_alternating_table_rows_use_readable_light_palette(window):
     from PySide6.QtGui import QPalette
     for table in (window.roadmap_tree, window.tier_table):
         table.ensurePolished()
         color = table.palette().color(QPalette.ColorRole.AlternateBase)
-        assert color.lightness() < 80
+        assert color.lightness() > 210
+        assert table.palette().color(QPalette.ColorRole.Text).lightness() < 130
+
+
+def test_mondstadt_backdrop_and_hywenhei_are_available_in_native_ui(window):
+    from PySide6.QtGui import QFontDatabase
+    assert window.project_font_family == "HYWenHei"
+    assert "HYWenHei" in QFontDatabase.families()
+    canvas = window.centralWidget()
+    assert not canvas._mondstadt.isNull()
+    assert not canvas._mondstadt_blurred.isNull()
+
+
+def test_character_status_filter_selects_a_visible_character(window):
+    characters = [{"key": key, "target": None, "talents": {}, "level": 80,
+                   "ascension": 6, "weapon": None, "artifacts": [], "teams": []}
+                  for key in ("Amber", "Fischl")]
+    goals = [{"goalKey": "amber", "character": {"key": "Amber"},
+              "type": "CHARACTER_LEVEL", "status": "ACTIONABLE", "rank": 1},
+             {"goalKey": "fischl", "character": {"key": "Fischl"},
+              "type": "CHARACTER_LEVEL", "status": "BLOCKED", "rank": 2}]
+    data = {"characters": characters, "roadmap": {"global": goals},
+            "today": {"farming": [], "todayState": {}}}
+    window._data = data
+    window._render_roadmap(data)
+    window._render_characters(data)
+    window.character_list.setCurrentRow(1)
+    window._set_character_filter("ready")
+    assert window.character_list.currentItem().text() == "Amber"
+    assert not window.character_list.item(0).isHidden()
+    assert window.character_list.item(1).isHidden()
 
 
 def test_roadmap_details_include_hidden_values_and_disable_for_filtered_row(window):
@@ -442,6 +534,37 @@ def test_enter_opens_selected_action_detail_in_place(window):
     QTest.keyClick(window.action_queue, Qt.Key.Key_Return)
     assert "Amber" in window.action_detail_title.text()
     assert "80 → 90" in window.action_detail_body.text()
+
+
+def test_plan_detail_explains_reason_and_required_materials_before_source(window):
+    goal = {"rank": 1, "goalKey": "amber-skill", "character": {"key": "Amber"},
+            "type": "TALENT_SKILL", "status": "ACTIONABLE",
+            "current": {"value": 6}, "nextMilestone": {"value": 8}}
+    task = {"primaryGoal": {"goalKey": "amber-skill"},
+            "whySummary": "Ưu tiên nhân vật đang xây dựng.",
+            "requiredCost": {"Sách thiên phú": None, "Mora": 45000},
+            "source": {"name": "Bí cảnh thử nghiệm", "resinCost": 20}}
+    window._render_roadmap({"roadmap": {"global": [goal]},
+                            "today": {"primaryTask": task}})
+    window._show_action_detail(window.action_queue_filter.index(0, 0))
+    body = window.action_detail_body.text()
+    assert "Sách thiên phú: chưa rõ số lượng" in body
+    assert "Mora: 45000" in body
+    assert body.index("Vì sao bước này?") < body.index("Tổng vật phẩm ước tính") < body.index("Nguồn:")
+    assert "chưa trừ vật phẩm đang có" in body
+    assert window.action_detail_progress.text() == "6 → 8"
+    assert "Ưu tiên nhân vật đang xây dựng." in window.action_detail_reason.text()
+    assert [(row.widget().layout().itemAt(0).widget().text(),
+             row.widget().layout().itemAt(1).widget().text())
+            for row in (window.action_material_rows.itemAt(i)
+                        for i in range(window.action_material_rows.count()))] == [
+                ("Sách thiên phú", "Chưa rõ"), ("Mora", "45000")]
+    assert "Bí cảnh thử nghiệm" in window.action_detail_source.text()
+
+    window.action_queue_model.set_goals([{**goal, "goalKey": "other"}], [])
+    window._show_action_detail(window.action_queue_filter.index(0, 0))
+    assert window.action_materials_group.isHidden()
+    assert window.action_source_group.isHidden()
 
 
 def test_populated_today_preserves_unknown_and_zero_amounts_without_overflow(window):
@@ -580,7 +703,7 @@ def test_empty_destinations_offer_a_working_next_step(window):
     window._render_tier_list()
 
     for page, empty in ((1, window.roadmap_empty), (2, window.character_empty),
-                        (3, window.tier_empty)):
+                        (4, window.tier_empty)):
         window.nav.setCurrentRow(page)
         QApplication.processEvents()
         assert empty.isVisible()
@@ -678,6 +801,8 @@ def test_waiting_today_surfaces_actionable_alternative(window):
     assert window.today_badge.text() == "CHƯA MỞ HÔM NAY"
     assert "30/09" in window.today_avail_badge.text()
     assert not window.today_waiting_alt.isHidden()
+    today_layout = window.today_waiting_alt.parentWidget().layout()
+    assert today_layout.indexOf(window.today_waiting_alt) < today_layout.indexOf(window.today_materials)
     assert window.today_waiting_alt_title.text() == alternative["title"]
     assert window.page_description.text() == "Có việc khác làm được trong lúc ưu tiên chính đang chờ."
     window.today_waiting_alt_button.click()
@@ -787,8 +912,26 @@ def test_availability_and_rv_do_not_keep_stale_success_colors(window):
     task["availability"] = "UNKNOWN"
     window._render_today({"today": plan})
     assert window.today_avail_badge.property("state") == ""
+    assert window.today_avail_badge.text() == "Chưa xác định điều kiện"
+    assert window.today_badge.text() == "CẦN KIỂM TRA"
+    assert window.today_roadmap_button.objectName() == "ghostButton"
     window._render_today({"today": None})
     assert window.today_avail_badge.property("state") == ""
+
+
+def test_today_distinguishes_blocked_and_weekly_limited_tasks(window):
+    task = {"title": "Farm", "character": {}, "availability": "PREREQUISITE_BLOCKED",
+            "requiredCost": {}}
+    plan = {"primaryTask": task, "quickActions": [], "farming": [], "unavailable": [], "blocked": []}
+    window._render_today({"today": plan})
+    assert window.today_badge.text() == "CẦN BƯỚC TRƯỚC"
+    assert window.today_avail_badge.property("state") == "warning"
+    task["availability"] = "WEEKLY_LIMITED"
+    window._render_today({"today": plan})
+    assert window.today_badge.text() == "GIỚI HẠN TUẦN"
+    assert window.today_roadmap_button.objectName() == "ghostButton"
+    window.today_roadmap_button.click()
+    assert window.today_inspector_status.text() == "Giới hạn tuần"
 
 
 def test_action_queue_switches_to_detail_and_restores_list_at_800(window):
@@ -805,10 +948,12 @@ def test_action_queue_switches_to_detail_and_restores_list_at_800(window):
     window._show_action_detail(index)
     assert window.action_list_panel.isHidden()
     assert window.action_detail_panel.isVisible()
+    assert window.roadmap_summary.isHidden()
     assert "Bước 13" in window.action_detail_title.text()
     window.action_back.click()
     assert window.action_list_panel.isVisible()
     assert window.action_detail_panel.isHidden()
+    assert not window.roadmap_summary.isHidden()
     assert scroll.value() == previous
 
 
@@ -833,6 +978,32 @@ def test_account_file_detects_good_and_snapshot_before_preview(window, monkeypat
 
 def test_materials_are_not_presented_as_inventory(window):
     assert not hasattr(window, "today_material_table")
+
+
+def test_today_keeps_step_details_available_without_character_key(window):
+    task = {"title": "Nguồn nâng cấp", "character": {}, "availability": "AVAILABLE",
+            "requiredCost": {}}
+    window._render_today({"today": {"primaryTask": task, "quickActions": [],
+                                    "farming": [task], "unavailable": [], "blocked": []}})
+    assert not window.today_roadmap_button.isHidden()
+    window.today_roadmap_button.click()
+    assert window.today_inspector.isVisible()
+    assert window.today_inspector_plan.isHidden()
+
+
+def test_today_surfaces_required_materials_without_inventing_inventory(window):
+    task = {"title": "Amber · Thiên phú", "character": {"key": "Amber"},
+            "availability": "AVAILABLE", "requiredCost": {"Sách thiên phú": None,
+                                                        "Mora": 45000, "Vật phẩm đã đủ": 0}}
+    window._render_today({"today": {"primaryTask": task, "quickActions": [],
+                                    "farming": [task], "unavailable": [], "blocked": []}})
+    assert not window.today_materials.isHidden()
+    assert [(name.text(), amount.text()) for _, name, amount in window.today_material_rows[:3]] == [
+        ("Sách thiên phú", "Chưa rõ"), ("Mora", "45000"), ("Vật phẩm đã đủ", "0")]
+    assert "chưa trừ vật phẩm" in window.today_materials_note.text()
+    assert window.today_roadmap_button.objectName() == "primaryButton"
+    window._render_today({"today": None})
+    assert window.today_materials.isHidden()
 
 
 def test_empty_character_snapshot_hides_old_equipment_and_disables_actions(window):

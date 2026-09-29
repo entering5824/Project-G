@@ -21,6 +21,8 @@ def _is_ranked(goal: UpgradeGoal, inp: PlannerInput) -> bool:
         return True
     if inp.planner_controls.get(goal.character_key) == "IGNORE":
         return False
+    if goal.priority_mode == "PRIORITIZED":
+        return True
     if inp.tier_scores:
         score = inp.tier_scores.get(goal.character_key)
         return score is not None and (score >= inp.minimum_tier_score or

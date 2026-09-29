@@ -1,8 +1,8 @@
 """Shared glass dialog layout with persistent actions and scrollable content."""
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QLinearGradient, QPainter
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFrame, QLabel, QScrollArea, QVBoxLayout, QWidget
-from .glass import GlassCanvas
-from .theme import DESKTOP_STYLE
+from .theme import DESKTOP_STYLE, load_project_font
 
 
 class GlassDialog(QDialog):
@@ -10,11 +10,17 @@ class GlassDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        load_project_font()
         self.setStyleSheet(DESKTOP_STYLE)
         self._shell_ready = False
 
     def paintEvent(self, event):
-        GlassCanvas.paintEvent(self, event)
+        painter = QPainter(self)
+        backdrop = QLinearGradient(0, 0, self.width(), self.height())
+        backdrop.setColorAt(0, QColor('#F8FCFB'))
+        backdrop.setColorAt(1, QColor('#DAEAED'))
+        painter.fillRect(self.rect(), backdrop)
+        painter.end()
 
     def setVisible(self, visible):
         if visible and not self._shell_ready and isinstance(self.layout(), QVBoxLayout):

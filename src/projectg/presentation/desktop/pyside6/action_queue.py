@@ -88,43 +88,50 @@ class ActionQueueDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         goal = index.data(ActionQueueModel.GoalRole) or {}
-        rect = option.rect.adjusted(3, 3, -3, -3)
+        rect = option.rect.adjusted(3, 0, -3, 0)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         painter.save()
         painter.setRenderHint(painter.RenderHint.Antialiasing)
-        painter.setPen(QPen(QColor(COLORS["border"]), 1))
-        painter.setBrush(QColor(COLORS["elevated"] if selected else
-                                COLORS["hover"] if hovered else COLORS["surface"]))
-        painter.drawRoundedRect(rect, 12, 12)
-        if selected:
-            painter.fillRect(rect.left(), rect.top() + 12, 3, rect.height() - 24,
-                             QColor(COLORS["accent"]))
+        if selected or hovered:
+            painter.setPen(QPen(QColor(255, 255, 255, 36), 1) if selected else Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(COLORS["elevated"] if selected else COLORS["hover"]))
+            painter.drawRoundedRect(rect.adjusted(8, 4, -4, -4), 12, 12)
+
+        # One continuous path gives the ordered goals a timeline shape.
+        axis = rect.left() + 27
+        painter.setPen(QPen(QColor(217, 194, 139, 55), 1))
+        painter.drawLine(axis, rect.top(), axis, rect.bottom())
+        painter.setPen(QPen(QColor(255, 255, 255, 24), 1))
+        painter.drawLine(rect.left() + 62, rect.bottom(), rect.right() - 12, rect.bottom())
+        status = goal.get("status")
+        status_color = (COLORS["success"] if status == "ACTIONABLE" else
+                        COLORS["warning"] if status == "BLOCKED" else COLORS["secondary"])
+        painter.setPen(QPen(QColor(COLORS["accent_hover"] if selected else status_color), 2))
+        painter.setBrush(QColor(COLORS["elevated"]))
+        painter.drawEllipse(axis - 6, rect.top() + 21, 12, 12)
         rank = int(goal.get("rank") or index.row() + 1)
         character = (goal.get("character") or {}).get("name") or (goal.get("character") or {}).get("key") or "Nhân vật"
         painter.setPen(QColor(COLORS["secondary"]))
-        painter.drawText(rect.adjusted(16, 15, 0, 0), f"{rank:02d}")
-        left = rect.left() + 58
+        painter.drawText(rect.left() + 42, rect.top() + 29, f"{rank:02d}")
+        left = rect.left() + 66
         font = QFont(option.font)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
         painter.setPen(QColor(COLORS["text"]))
         available_width = max(0, rect.right() - left - 12)
-        painter.drawText(left, rect.top() + 28,
+        painter.drawText(left, rect.top() + 27,
                          painter.fontMetrics().elidedText(character, Qt.TextElideMode.ElideRight, available_width))
-        painter.drawText(left, rect.top() + 49,
+        painter.drawText(left, rect.top() + 48,
                          painter.fontMetrics().elidedText(goal_display_title(goal), Qt.TextElideMode.ElideRight,
                                                            available_width))
         painter.setFont(option.font)
-        status = goal.get("status")
-        status_color = (COLORS["success"] if status == "ACTIONABLE" else
-                        COLORS["warning"] if status == "BLOCKED" else COLORS["secondary"])
         painter.setPen(QColor(status_color))
-        painter.drawText(left, rect.top() + 69,
+        painter.drawText(left, rect.top() + 68,
                          painter.fontMetrics().elidedText(index.data(ActionQueueModel.AvailabilityRole) or "",
                                                            Qt.TextElideMode.ElideRight, available_width))
         if option.state & QStyle.StateFlag.State_HasFocus:
             painter.setPen(QPen(QColor(COLORS["accent"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(2, 2, -2, -2), 10, 10)
+            painter.drawRoundedRect(rect.adjusted(10, 6, -6, -6), 10, 10)
         painter.restore()

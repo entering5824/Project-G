@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QListWidget, QListWid
 from projectg.presentation.desktop.pyside6.theme import set_state
 from projectg.presentation.desktop.pyside6.responsive_grid import ResponsiveCardGrid
 from projectg.presentation.desktop.pyside6.assets import get_character_pixmap
-from projectg.presentation.desktop.pyside6.glass import SmokedGlassFrame
+from projectg.presentation.desktop.pyside6.glass import BackdropGlassFrame, SmokedGlassFrame
 from projectg.presentation.desktop.pyside6.goal_copy import today_action_copy, today_display_title
 from projectg.presentation.desktop.pyside6.action_queue import ActionQueueModel
 
@@ -108,7 +108,7 @@ class TodayPage:
         hero_center.addWidget(self.today_good_button, 0, Qt.AlignmentFlag.AlignLeft)
         self.today_rank_button = QPushButton("Điều chỉnh ưu tiên")
         self.today_rank_button.setObjectName("primaryButton")
-        self.today_rank_button.clicked.connect(lambda: self.nav.setCurrentRow(3))
+        self.today_rank_button.clicked.connect(lambda: self.nav.setCurrentRow(4))
         self.today_rank_button.hide()
         hero_center.addWidget(self.today_rank_button, 0, Qt.AlignmentFlag.AlignLeft)
 
@@ -153,7 +153,7 @@ class TodayPage:
         body.addWidget(hero_card)
         body.setAlignment(hero_card, Qt.AlignmentFlag.AlignHCenter)
 
-        self.today_waiting_alt = QFrame()
+        self.today_waiting_alt = BackdropGlassFrame()
         self.today_waiting_alt.setMaximumWidth(920)
         self.today_waiting_alt.setObjectName("alternativeCard")
         alt_hint_layout = QHBoxLayout(self.today_waiting_alt)
@@ -182,7 +182,44 @@ class TodayPage:
         body.addWidget(self.today_waiting_alt)
         body.setAlignment(self.today_waiting_alt, Qt.AlignmentFlag.AlignHCenter)
 
-        self.today_onboarding = QFrame()
+        self.today_materials = BackdropGlassFrame()
+        self.today_materials.setObjectName("surfaceCard")
+        self.today_materials.setMaximumWidth(920)
+        materials_layout = QVBoxLayout(self.today_materials)
+        materials_layout.setContentsMargins(20, 16, 20, 16)
+        materials_layout.setSpacing(6)
+        materials_title = QLabel("Vật phẩm cho bước này")
+        materials_title.setObjectName("section")
+        materials_layout.addWidget(materials_title)
+        self.today_material_rows = []
+        for _ in range(4):
+            row = QWidget()
+            row.setObjectName("materialRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 1, 0, 1)
+            name_label = QLabel()
+            name_label.setObjectName("secondaryText")
+            name_label.setWordWrap(True)
+            amount_label = QLabel()
+            amount_label.setObjectName("materialAmount")
+            amount_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            amount_label.setMinimumWidth(104)
+            row_layout.addWidget(name_label, 1)
+            row_layout.addWidget(amount_label)
+            materials_layout.addWidget(row)
+            self.today_material_rows.append((row, name_label, amount_label))
+        self.today_materials_more = QLabel()
+        self.today_materials_more.setObjectName("secondaryText")
+        materials_layout.addWidget(self.today_materials_more)
+        self.today_materials_note = QLabel("Tổng ước tính; chưa trừ vật phẩm bạn đang có.")
+        self.today_materials_note.setObjectName("metricLabel")
+        self.today_materials_note.setWordWrap(True)
+        materials_layout.addWidget(self.today_materials_note)
+        self.today_materials.hide()
+        body.addWidget(self.today_materials)
+        body.setAlignment(self.today_materials, Qt.AlignmentFlag.AlignHCenter)
+
+        self.today_onboarding = BackdropGlassFrame()
         self.today_onboarding.setObjectName("onboarding")
         onboarding_layout = QVBoxLayout(self.today_onboarding)
         onboarding_layout.setContentsMargins(18, 16, 18, 18)
@@ -221,8 +258,9 @@ class TodayPage:
         self.today_details_button.setToolTip("Thông tin tài khoản và các phương án thay thế")
         self.today_details_button.setObjectName("ghostButton")
         self.today_details_button.setCheckable(True)
-        body.addWidget(self.today_details_button, 0, Qt.AlignmentFlag.AlignLeft)
+        body.addWidget(self.today_details_button, 0, Qt.AlignmentFlag.AlignHCenter)
         self.today_details_panel = QWidget()
+        self.today_details_panel.setMaximumWidth(920)
         bottom_row = ResponsiveCardGrid(200, 2)
         details_layout = QVBoxLayout(self.today_details_panel)
         details_layout.setContentsMargins(0, 0, 0, 0)
@@ -271,7 +309,7 @@ class TodayPage:
         alt_layout.addWidget(self.today_alternatives_list)
         bottom_row.add_card(alt_card)
 
-        body.addWidget(self.today_details_panel)
+        body.addWidget(self.today_details_panel, 0, Qt.AlignmentFlag.AlignHCenter)
 
         # Retain hidden QTextEdit for backward-compatible access
         self.today_context = QTextEdit()
@@ -284,7 +322,7 @@ class TodayPage:
         self.today_scroll = scroll
         self.today_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.today_splitter.addWidget(scroll)
-        self.today_inspector = QFrame()
+        self.today_inspector = BackdropGlassFrame()
         self.today_inspector.setObjectName("surfaceCard")
         inspector_layout = QVBoxLayout(self.today_inspector)
         inspector_layout.setContentsMargins(24, 24, 24, 24)
@@ -355,15 +393,25 @@ class TodayPage:
             status_text = "Làm được ngay"
         elif availability == "PREREQUISITE_BLOCKED":
             status_text = "Cần hoàn thành bước trước"
+        elif availability == "WEEKLY_LIMITED":
+            status_text = "Giới hạn tuần"
         else:
-            status_text = "Xem điều kiện"
+            status_text = "Chưa xác định điều kiện"
         self.today_inspector_status.setText(status_text)
         set_state(self.today_inspector_status,
                   "success" if availability in {"AVAILABLE", "ALWAYS_AVAILABLE"} else
-                  "warning" if availability in {"UNAVAILABLE_TODAY", "PREREQUISITE_BLOCKED"} else "accent")
+                  "warning" if availability in {"UNAVAILABLE_TODAY", "PREREQUISITE_BLOCKED", "WEEKLY_LIMITED"} else "accent")
         if task.get("whySummary"):
             lines.append("Vì sao bước này? " + task["whySummary"])
+        costs = task.get("requiredCost") or {}
+        if costs:
+            lines.append("Tổng vật phẩm ước tính (chưa trừ vật phẩm đang có):\n" + "\n".join(
+                f"{name}: {'chưa rõ số lượng' if amount is None else amount}"
+                for name, amount in costs.items()))
         self.today_inspector_body.setText("\n\n".join(lines) or "Xem bước này trong Kế hoạch để biết thêm chi tiết.")
+        self.today_inspector_plan.setVisible(bool(
+            (task.get("character") or {}).get("key") or
+            (task.get("primaryGoal") or {}).get("goalKey")))
         self.today_inspector_back.setVisible(self.width() < 1060)
         self.today_inspector.show()
         self._size_today_cards()
@@ -383,7 +431,9 @@ class TodayPage:
             available = int(available * 0.6) - 30
         width = min(920, max(320, available))
         self.today_hero_card.setFixedWidth(width)
+        self.today_materials.setFixedWidth(width)
         self.today_waiting_alt.setFixedWidth(width)
+        self.today_details_panel.setFixedWidth(width)
         compact = self.height() < 700
         portrait_size = 104 if compact else 144
         if self.today_avatar.width() != portrait_size:
@@ -406,6 +456,10 @@ class TodayPage:
         self._set_today_description("Một việc nên làm tiếp theo cho tài khoản của bạn.")
         self._waiting_alternative = None
         self.today_waiting_alt.hide()
+        self.today_materials.hide()
+        for row, _, _ in self.today_material_rows:
+            row.hide()
+        self.today_materials_more.hide()
         self.today_roadmap_button.hide()
         self.today_characters_button.hide()
         self.today_eyebrow.setText("NÊN LÀM TIẾP")
@@ -516,7 +570,7 @@ class TodayPage:
         self.today_avatar.setPixmap(get_character_pixmap(
             char_key, portrait_size, device_pixel_ratio=self.devicePixelRatioF()))
         self.today_avatar.setVisible(bool(char_key))
-        self.today_roadmap_button.setVisible(bool(char_key))
+        self.today_roadmap_button.show()
         self.today_characters_button.setVisible(bool(char_key))
 
         title_text = today_display_title(task)
@@ -542,7 +596,12 @@ class TodayPage:
         self.today_action_detail.setText(action_text if action_text != title_text else "")
 
         # Action Badge
-        waiting = task.get("availability") in {"UNAVAILABLE_TODAY", "PREREQUISITE_BLOCKED"}
+        availability = task.get("availability")
+        ready = availability in {"AVAILABLE", "ALWAYS_AVAILABLE"}
+        waiting = not ready
+        self.today_roadmap_button.setObjectName("primaryButton" if ready else "ghostButton")
+        self.today_roadmap_button.style().unpolish(self.today_roadmap_button)
+        self.today_roadmap_button.style().polish(self.today_roadmap_button)
         self.today_hero_card.setObjectName("surfaceCard" if waiting else "primary")
         self.today_hero_card.style().unpolish(self.today_hero_card)
         self.today_hero_card.style().polish(self.today_hero_card)
@@ -553,7 +612,14 @@ class TodayPage:
         self.today_hero_layout.setContentsMargins(inset, 14 if compact else 18 if waiting else 28,
                                                  inset, 14 if compact else 18 if waiting else 24)
         self.today_eyebrow.setText("NÊN LÀM TIẾP")
-        self.today_badge.setText("CHƯA MỞ HÔM NAY" if waiting else "LÀM ĐƯỢC NGAY")
+        badge_labels = {
+            "AVAILABLE": "LÀM ĐƯỢC NGAY",
+            "ALWAYS_AVAILABLE": "LÀM ĐƯỢC NGAY",
+            "UNAVAILABLE_TODAY": "CHƯA MỞ HÔM NAY",
+            "PREREQUISITE_BLOCKED": "CẦN BƯỚC TRƯỚC",
+            "WEEKLY_LIMITED": "GIỚI HẠN TUẦN",
+        }
+        self.today_badge.setText(badge_labels.get(availability, "CẦN KIỂM TRA"))
         self.today_badge.setObjectName("badge")
         set_state(self.today_badge, "warning" if waiting else "accent")
 
@@ -570,7 +636,7 @@ class TodayPage:
             "UNAVAILABLE_TODAY": "Chưa mở hôm nay",
             "WEEKLY_LIMITED": "Giới hạn tuần",
         }
-        avail_str = avail_labels.get(task.get("availability"), task.get("availability") or "-")
+        avail_str = avail_labels.get(availability, "Chưa xác định điều kiện")
         next_date = task.get("nextAvailableDate")
         if task.get("availability") == "UNAVAILABLE_TODAY" and next_date:
             try:
@@ -578,18 +644,36 @@ class TodayPage:
             except ValueError:
                 pass
         self.today_avail_badge.setText(avail_str)
-        if task.get("availability") in {"UNAVAILABLE_TODAY", "PREREQUISITE_BLOCKED"}:
+        if availability in {"UNAVAILABLE_TODAY", "PREREQUISITE_BLOCKED", "WEEKLY_LIMITED"}:
             self.today_avail_badge.setObjectName("fact")
             set_state(self.today_avail_badge, "warning")
-        elif task.get("availability") in {"AVAILABLE", "ALWAYS_AVAILABLE"}:
+        elif ready:
             self.today_avail_badge.setObjectName("fact")
             set_state(self.today_avail_badge, "success")
 
+        costs = task.get("requiredCost") or {}
+        if costs:
+            preview = list(costs.items())
+            for (row, name_label, amount_label), (name, amount) in zip(self.today_material_rows, preview[:4]):
+                name_label.setText(str(name))
+                amount_label.setText("Chưa rõ" if amount is None else str(amount))
+                row.show()
+            if len(preview) > 4:
+                self.today_materials_more.setText(f"Còn {len(preview) - 4} vật phẩm trong chi tiết bước này.")
+                self.today_materials_more.show()
+            self.today_materials.show()
+
         if waiting:
-            self._set_today_description("Ưu tiên chính đang chờ; xem điều kiện và ngày khả dụng.")
+            descriptions = {
+                "UNAVAILABLE_TODAY": "Ưu tiên chính chưa mở hôm nay; xem ngày khả dụng và việc khác có thể làm.",
+                "PREREQUISITE_BLOCKED": "Ưu tiên chính cần hoàn thành bước trước; xem điều kiện và việc khác có thể làm.",
+                "WEEKLY_LIMITED": "Ưu tiên chính có giới hạn tuần; xem điều kiện trước khi thực hiện.",
+            }
+            self._set_today_description(descriptions.get(availability, "Chưa xác định điều kiện của ưu tiên chính; hãy xem chi tiết."))
             actionable = [*plan.get("quickActions", []), *plan.get("farming", [])]
             alternative = next((candidate for candidate in (plan.get("alternativeTasks") or [])
-                                if candidate in actionable and candidate is not task), None)
+                                if candidate in actionable and candidate is not task and
+                                candidate.get("availability") in {"AVAILABLE", "ALWAYS_AVAILABLE"}), None)
             if alternative is not None:
                 self._waiting_alternative = alternative
                 self.today_waiting_alt_title.setText(today_display_title(alternative))

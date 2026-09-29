@@ -1,8 +1,10 @@
 from dataclasses import replace
 
+import pytest
+
 from projectg.domain.planning.config import DEFAULT_PLANNER_CONFIG
 from projectg.domain.planning.dependencies import actionable_frontier, resolve_dependencies
-from projectg.domain.planning.gap_detector import detect_goals
+from projectg.domain.planning.gap_detector import _marginal_importance, detect_goals
 from projectg.domain.planning.models import (CharacterState, GoalStatus, GoalType, PlannerInput,
                                 TierValue, UpgradeGoal, WeaponState)
 from projectg.domain.planning.progress import (ascension_deficiency, character_level_deficiency,
@@ -182,6 +184,30 @@ def test_explicit_priority_override_can_include_unranked_character():
 
     assert result.global_plan
     assert all(not goal.tier_configured for goal in result.global_plan)
+
+
+def test_priority_override_includes_unranked_character_when_others_have_tier_scores():
+    chars = {key: CharacterState(key, 20, 1, {"auto": 1, "skill": 1, "burst": 1}, None)
+             for key in ("Ranked", "Unranked")}
+    inp = planner_input(chars, {key: target(weapon=1) for key in chars},
+                        tiers={"S": TierValue("S", "S", 0.9)},
+                        assignments={"Ranked": "S"},
+                        priorities={"Unranked": "PRIORITIZED"})
+    inp.tier_scores = {"Ranked": 90}
+
+    result = run_plan(inp)
+
+    assert any(goal.character_key == "Unranked" for goal in result.global_plan)
+    inp.planner_controls["Unranked"] = "IGNORE"
+    assert all(goal.character_key != "Unranked" for goal in run_plan(inp).global_plan)
+
+
+def test_step_utility_uses_lowest_value_across_intersecting_ranges():
+    target_data = {"_profiles": [{"progression": {"weapon": {
+        "stepUtility": {"20-30": 0.9, "30-40": 0.2}}}}]}
+
+    assert _marginal_importance(target_data, "weapon", 20, 40, 0.8) == pytest.approx(0.16)
+    assert _marginal_importance(target_data, "weapon", 20, 30, 0.8) == pytest.approx(0.72)
 
 
 def test_same_normalized_state_produces_same_ordered_plan():

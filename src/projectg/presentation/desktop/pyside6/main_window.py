@@ -4,7 +4,7 @@ from datetime import datetime
 from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtGui import QAction, QColor, QShortcut, QKeySequence, QPalette
 from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QLabel, QListWidget, QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QToolButton
-from projectg.presentation.desktop.pyside6.theme import COLORS, DESKTOP_STYLE, set_state
+from projectg.presentation.desktop.pyside6.theme import COLORS, DESKTOP_STYLE, load_project_font, set_state
 from projectg.presentation.desktop.pyside6.navigation import NavigationDelegate
 from projectg.presentation.desktop.pyside6.workers import OverviewWorker
 import logging
@@ -14,12 +14,14 @@ log = logging.getLogger(__name__)
 from projectg.presentation.desktop.pyside6.pages.today import TodayPage
 from projectg.presentation.desktop.pyside6.pages.roadmap import RoadmapPage
 from projectg.presentation.desktop.pyside6.pages.characters import CharactersPage
+from projectg.presentation.desktop.pyside6.pages.data import DataPage
 from projectg.presentation.desktop.pyside6.pages.tier_list import TierListPage
 from projectg.presentation.desktop.pyside6.actions.data_io import DataActions
 from projectg.presentation.desktop.pyside6.actions.planning import PlanningActions
 
 
-class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActions, PlanningActions, QMainWindow):
+class MainWindow(TodayPage, RoadmapPage, CharactersPage, DataPage, TierListPage,
+                 DataActions, PlanningActions, QMainWindow):
     def __init__(self, account_import_controller, settings_controller, teams_controller,
                  character_configuration_controller, game_data_controller, artifact_exchange_controller,
                  planner_state_controller, target_controller, tier_pack_controller, support_controller,
@@ -42,6 +44,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.setWindowTitle("Genshin Account Progression Planner")
         self.resize(1280, 800)
         self.setMinimumSize(800, 560)
+        self.project_font_family = load_project_font()
         # Native control arrows and placeholders also need a dark palette.
         palette = self.palette()
         for role, token in ((QPalette.ColorRole.Window, "background"),
@@ -101,12 +104,13 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav.setFrameShape(QFrame.Shape.NoFrame)
-        self.nav.addItems(["Hôm nay", "Kế hoạch", "Nhân vật", "Ưu tiên"])
-        self.nav.item(3).setHidden(True)
+        self.nav.addItems(["Hôm nay", "Kế hoạch", "Nhân vật", "Dữ liệu", "Ưu tiên"])
+        self.nav.item(4).setHidden(True)
         self.nav.setAccessibleName("Điều hướng chính")
         for index, description in enumerate((
             "Việc nên làm hôm nay", "Thứ tự nâng cấp toàn tài khoản",
-            "Tiến trình và build của từng nhân vật", "Xếp hạng và ưu tiên nhân vật",
+            "Tiến trình và build của từng nhân vật", "Tài khoản và dữ liệu trên máy",
+            "Xếp hạng và ưu tiên nhân vật",
         )):
             self.nav.item(index).setToolTip(f"{description} · Ctrl+{index + 1}")
         self.nav.currentRowChanged.connect(self._switch)
@@ -139,18 +143,15 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.header_layout = header_layout
         header_layout.setContentsMargins(0, 0, 0, 10)
         header_layout.setSpacing(6)
-        self.page_title = QLabel("Tiếp theo")
-        self.page_title.setObjectName("pageTitle")
-        self.page_kicker = QLabel("01 / 04  ·  HÔM NAY")
+        self.page_kicker = QLabel("HÀNH TRÌNH PHÁT TRIỂN")
         self.page_kicker.setObjectName("pageKicker")
-        self.page_kicker.hide()
+        header_layout.addWidget(self.page_kicker)
+        self.page_title = QLabel("Hôm nay")
+        self.page_title.setObjectName("pageTitle")
         self.page_description = QLabel()
         self.page_description.setObjectName("pageSubtitle")
         self.page_description.setWordWrap(True)
-        header_title_row = QHBoxLayout()
-        header_title_row.addWidget(self.page_title, 1)
-        header_title_row.addWidget(self.page_kicker, 0, Qt.AlignmentFlag.AlignTop)
-        header_layout.addLayout(header_title_row)
+        header_layout.addWidget(self.page_title)
         header_layout.addWidget(self.page_description)
         main.addWidget(header)
 
@@ -204,7 +205,8 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         tools_menu.addAction("Cài đặt…", self.settings_button.click)
         tools_menu.addAction("Phím tắt…", lambda: QMessageBox.information(
             self, "Phím tắt Project G",
-            "Ctrl+1: Hôm nay\nCtrl+2: Kế hoạch\nCtrl+3: Nhân vật\nCtrl+F: Tìm kiếm\nCtrl+R: Cập nhật kế hoạch"))
+            "Ctrl+1: Hôm nay\nCtrl+2: Kế hoạch\nCtrl+3: Nhân vật\nCtrl+4: Dữ liệu\n"
+            "Ctrl+5: Điều chỉnh ưu tiên\nCtrl+F: Tìm kiếm\nCtrl+R: Cập nhật kế hoạch"))
         planning_menu = tools_menu.addMenu("Lập kế hoạch")
         data_menu = tools_menu.addMenu("Dữ liệu")
         support_menu = tools_menu.addMenu("Hỗ trợ")
@@ -250,7 +252,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self._tool_actions.extend(((self.refresh_action, self.refresh_button),
                                    (self.export_action, self.export_results_button)))
         advanced_menu = tools_menu.addMenu("Công cụ nâng cao")
-        advanced_menu.addAction("Điều chỉnh ưu tiên…", lambda: self.nav.setCurrentRow(3))
+        advanced_menu.addAction("Điều chỉnh ưu tiên…", lambda: self.nav.setCurrentRow(4))
         advanced_menu.addAction("Chỉnh mục tiêu…", self.open_target_editor)
         advanced_menu.addAction("Nhập Target JSON…", self.import_targets)
         advanced_menu.addAction("Nhập dữ liệu thủ công…", self.import_snapshot)
@@ -282,6 +284,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self._make_today()
         self._make_roadmap()
         self._make_characters()
+        self._make_data()
         self._make_tier_list()
 
         self.today_title.setTextFormat(Qt.TextFormat.PlainText)
@@ -325,13 +328,13 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
 
 
     def _apply_window_layout(self):
-        rail = False
+        rail = self.width() >= 1180
         short = self.height() < 700
         if rail != self._rail_mode:
-            self.root_layout.setDirection(QBoxLayout.Direction.TopToBottom)
-            self.sidebar_layout.setDirection(QBoxLayout.Direction.LeftToRight)
-            self.nav.setFlow(QListWidget.Flow.LeftToRight)
-            self.nav.setProperty("rail", False)
+            self.root_layout.setDirection(QBoxLayout.Direction.LeftToRight if rail else QBoxLayout.Direction.TopToBottom)
+            self.sidebar_layout.setDirection(QBoxLayout.Direction.TopToBottom if rail else QBoxLayout.Direction.LeftToRight)
+            self.nav.setFlow(QListWidget.Flow.TopToBottom if rail else QListWidget.Flow.LeftToRight)
+            self.nav.setProperty("rail", rail)
             self._rail_mode = rail
         self.root_layout.setContentsMargins(20 if rail else 10,
                                             16 if rail else 8 if short else 16,
@@ -357,8 +360,8 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.main_layout.setContentsMargins(0 if not rail else 8, 8,
                                            0 if not rail else 8, 16)
         self.header_layout.setSpacing(3 if short else 6)
-        self.page_kicker.setVisible(self.width() >= 1060 and not short)
         self.page_description.setVisible(not short)
+        self.page_kicker.setVisible(not short and self.pages.currentIndex() == 2)
         self.tier_help.setText(
             "Chọn hạng ưu tiên · Lưu để cập nhật lộ trình."
             if short else
@@ -370,12 +373,17 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.character_picker.setVisible(compact_character)
         compact_plan = self.width() < 1060
         self._size_today_cards()
+        self._size_data_cards()
         self.today_inspector_back.setVisible(compact_plan)
         if not compact_plan:
             self.today_scroll.show()
         elif not self.today_inspector.isHidden():
             self.today_scroll.hide()
         self.action_back.setVisible(compact_plan)
+        self.action_detail_layout.setContentsMargins(
+            14 if short else 24, 12 if short else 24,
+            14 if short else 24, 12 if short else 24)
+        self.action_detail_layout.setSpacing(5 if short else 12)
         if not compact_plan:
             self.action_list_panel.show()
             self.action_detail_panel.show()
@@ -391,7 +399,9 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
             self.character_visual_layout.setSpacing(8 if short else 14)
             self._compact_character = short
             self._refresh_character_avatar()
-        self.roadmap_summary.setVisible(not short or self.roadmap_metrics.isHidden())
+        reading_compact_plan = compact_plan and self.action_list_panel.isHidden()
+        self.roadmap_summary.setVisible(
+            (not short or self.roadmap_metrics.isHidden()) and not reading_compact_plan)
         self.sidebar_footer.setVisible(rail)
         self.account_summary.setVisible(rail and bool(self._data and self._data.get("snapshotId")))
         self.nav.doItemsLayout()
@@ -418,31 +428,34 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
 
     def _switch(self, index):
         if 0 <= index < self.pages.count():
-            if self.pages.currentIndex() == 3 and index != 3 and self._tier_dirty:
+            if self.pages.currentIndex() == 4 and index != 4 and self._tier_dirty:
                 if not self._confirm_tier_discard("Rời màn điều chỉnh ưu tiên"):
                     self.nav.blockSignals(True)
-                    self.nav.setCurrentRow(3)
+                    self.nav.setCurrentRow(4)
                     self.nav.blockSignals(False)
                     return
                 if self._tier_dirty:
                     self._render_tier_list()
             self.pages.setCurrentIndex(index)
-            self.page_title.setText(("Hôm nay", "Kế hoạch", "Nhân vật", "Điều chỉnh ưu tiên")[index])
-            self.page_kicker.setText(("01 / 04  ·  HÔM NAY", "02 / 04  ·  KẾ HOẠCH",
-                                      "03 / 04  ·  TÀI KHOẢN", "04 / 04  ·  ƯU TIÊN")[index])
+            self.snapshot_button.setVisible(index != 3)
+            self.page_title.setText(("Hôm nay", "Kế hoạch", "Nhân vật", "Dữ liệu",
+                                     "Điều chỉnh ưu tiên")[index])
             self.page_description.setText((
                 getattr(self, "_today_description", "Một việc nên làm tiếp theo cho tài khoản của bạn."),
                 "Xem nên nâng cấp gì trước.",
-                "Xem nhân vật và trang bị của bạn.",
+                "Chọn một nhân vật để xem bước nâng cấp phù hợp nhất.",
+                "Nhập, kiểm tra và sao lưu dữ liệu tài khoản.",
                 "Chọn nhân vật bạn muốn nâng cấp trước.",
             )[index])
+            self.page_kicker.setVisible(index == 2 and self.height() >= 700)
             self.page_title.setToolTip(self.page_description.text())
 
 
     def _focus_page_search(self):
-        search = {1: self.roadmap_search, 2: self.character_search, 3: self.tier_search}.get(
-            self.pages.currentIndex()
-        )
+        search = {1: self.roadmap_search,
+                  2: self.character_picker.lineEdit() if self.character_picker.isVisible()
+                  else self.character_search,
+                  4: self.tier_search}.get(self.pages.currentIndex())
         if search is not None:
             search.setFocus(Qt.FocusReason.ShortcutFocusReason)
             search.selectAll()
@@ -465,6 +478,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.backup_button.setEnabled(False)
         self.restore_button.setEnabled(False)
         self.today_import_button.setEnabled(False)
+        self._render_data(self._data or {})
         self._show_feedback("Đang tính kế hoạch từ dữ liệu hiện tại…")
         self._sync_tool_actions()
         self.statusBar().showMessage("Đang tính kế hoạch…")
@@ -510,6 +524,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self._render_today(data)
         self._render_roadmap(data)
         self._render_characters(data)
+        self._render_data(data)
         # A background recompute must not erase edits in the Tier List table.
         tier_loaded = True if self._tier_dirty else self._render_tier_list()
         self.statusBar().showMessage(
@@ -534,6 +549,7 @@ class MainWindow(TodayPage, RoadmapPage, CharactersPage, TierListPage, DataActio
         self.restore_button.setEnabled(True)
         self.statusBar().showMessage("Chưa cập nhật · đang hiển thị kế hoạch cũ" if self._data else "Không thể tải dữ liệu")
         self.today_import_button.setEnabled(True)
+        self._render_data(self._data or {})
         self._sync_tool_actions()
         self._show_feedback(
             ("Không thể cập nhật dữ liệu mới. Đang dùng dữ liệu từ " +

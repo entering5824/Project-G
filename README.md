@@ -64,10 +64,12 @@ Key rules are executable tests under `tests/architecture/`:
 
 The primary UI has four destinations:
 
-- **Tiếp theo** — one concrete action to do now, with materials, blockers, and reasons.
-- **Lộ trình** — stable account-wide strategic order and milestone chain.
+- **Hôm nay** — one concrete action to do now, with materials, blockers, and reasons.
+- **Kế hoạch** — stable account-wide strategic order and milestone chain.
 - **Nhân vật** — observed account snapshot beside available build profiles.
-- **Tier List** — score and control which characters join the automatic roadmap.
+- **Dữ liệu** — account import status, data checks, backup, and restore.
+
+**Điều chỉnh ưu tiên** remains available from **Công cụ nâng cao** for ranking and controlling which characters join the automatic roadmap.
 
 Import Account Snapshot JSON is the main input. The editor accepts the same v1 schema as manual entry; GOOD remains an import adapter. Legacy targets and manual artifact evaluations are retained in local history but do not control recommendations.
 
@@ -79,27 +81,26 @@ The legacy Target JSON contract remains available to inspect older account confi
 
 ## Desktop keyboard navigation
 
-- `Ctrl+1` to `Ctrl+4`: open Tiếp theo, Lộ trình, Nhân vật, or Tier List.
+- `Ctrl+1` to `Ctrl+4`: open Hôm nay, Kế hoạch, Nhân vật, or Dữ liệu.
+- `Ctrl+5`: open Điều chỉnh ưu tiên.
 - `Ctrl+F`: focus and select the search text on the current searchable page.
 - `Ctrl+R`: recalculate using the same action as the toolbar button.
 - `Enter` in the roadmap table: read full details for the selected visible row.
 
-The first-run view guides users through importing the account, ranking priorities,
-and reviewing recommendations. Today keeps availability and resin cost beside the
-recommended action; its roadmap button selects the matching goal when available.
+The first-run view guides users from account import to a recommendation; priority editing is optional.
+Today shows availability and required materials beside the recommended action, with resin estimates in step details.
+Its plan button selects the matching goal when available.
 Tier List shows ranking progress, invalid scores, and unsaved edits inline.
 
-The desktop uses a left navigation rail on wide windows and a horizontal header
-on compact windows. It has a shared page header and theme, visible keyboard focus, search-clear
+The desktop uses a horizontal navigation header at supported window sizes. It has a shared page header and theme, visible keyboard focus, search-clear
 buttons, a compact character action menu, and separate tier configuration actions.
 Character cards reflow with window width. Artifact substats and Today supplementary
 information can be expanded on demand. The Today
 card fits the supported 800 × 560 minimum window without horizontal scrolling.
 
-Roadmap and Tier List use compact columns by default. Enable **Chi tiết** to show
-all columns; hidden values are still included when saving or exporting Tier List.
-Use the main **Nhập tài khoản** button for Account Snapshot entry, or its arrow
-menu to import a GOOD file. After import, the same action reads **Cập nhật tài khoản**.
+Kế hoạch presents an ordered timeline with details for the selected step. In Điều chỉnh ưu tiên,
+enable **Chi tiết** to show all columns; hidden values remain in saved and exported Tier Lists.
+Use the **Dữ liệu** screen or the header account button to import Account Snapshot or GOOD.
 
 ## Local GameData packs
 

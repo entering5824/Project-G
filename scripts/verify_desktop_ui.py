@@ -90,6 +90,7 @@ def main():
     window._render_today(data)
     window._render_roadmap(data)
     window._render_characters(data)
+    window._render_data(data)
     # Render the real Tier List presentation with isolated illustrative data.
     window.tier_pack_controller = SimpleNamespace(load=lambda: {
         "pack": {"minimumTierForRoadmap": "S+"},
@@ -102,7 +103,7 @@ def main():
     checks = []
     for width, height in ((800, 560), (1260, 780), (1600, 1000)):
         window.resize(width, height)
-        for page in range(4):
+        for page in range(5):
             window.nav.setCurrentRow(page)
             for _ in range(3):
                 app.processEvents()
@@ -110,7 +111,7 @@ def main():
             for button in (window.snapshot_button, window.tools_button):
                 point = button.mapTo(window, button.rect().topLeft())
                 assert 0 <= point.x() and point.x() + button.width() <= width
-            if page in (0, 2):
+            if page in (0, 2, 3):
                 scroll = window.pages.widget(page).findChild(QScrollArea)
                 assert scroll.horizontalScrollBar().maximum() == 0, (page, width)
             if page == 2:
@@ -146,9 +147,15 @@ def main():
     window.export_results_button.setEnabled(False)
     window._apply_window_layout()
     window._render_today({"today": None})
+    window._render_data(window._data)
     for _ in range(3):
         app.processEvents()
     window.grab().save(str(args.output / "empty-account.png"))
+    window.nav.setCurrentRow(3)
+    for _ in range(3):
+        app.processEvents()
+    assert window.grab().save(str(args.output / "data-empty.png"))
+    window.nav.setCurrentRow(0)
     window._show_feedback("Không thể cập nhật. Kết quả trước đó được giữ lại.", error=True)
     for _ in range(3):
         app.processEvents()
@@ -197,7 +204,7 @@ def main():
         "dialogs": [name for name, _ in dialogs],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     window.close()
-    print(f"Verified 4 screens at 3 sizes and {len(dialogs)} dialogs, scale={os.environ.get('QT_SCALE_FACTOR', '1')}")
+    print(f"Verified 5 screens at 3 sizes and {len(dialogs)} dialogs, scale={os.environ.get('QT_SCALE_FACTOR', '1')}")
 
 
 if __name__ == "__main__":

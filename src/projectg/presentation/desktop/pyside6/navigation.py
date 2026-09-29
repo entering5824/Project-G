@@ -38,7 +38,8 @@ class NavigationDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         rail = bool(option.widget and option.widget.property("rail"))
-        return QSize(170 if rail else 120, 48)
+        compact = bool(option.widget and option.widget.window().width() < 960)
+        return QSize(170 if rail else 86 if compact else 112, 48)
 
     def paint(self, painter, option, index):
         painter.save()
@@ -89,9 +90,7 @@ class NavigationDelegate(QStyledItemDelegate):
         font.setPixelSize(13)
         font.setWeight(QFont.Weight.DemiBold if selected else QFont.Weight.Normal)
         painter.setFont(font)
-        painter.setPen(
-            QColor(COLORS['text']) if selected else QColor(COLORS['secondary'])
-        )
+        painter.setPen(QColor('#F5FAFB') if selected else QColor('#C9DCE6'))
         painter.drawText(
             rect.adjusted(22 if rail else 0, 0, 0, 0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft

@@ -13,9 +13,11 @@ Glass panel widget (SmokedGlassFrame) follows §5:
   • decorative corner marks — thin fantasy ornament, §2.3 detail/modal
 """
 from math import sin
+from pathlib import Path
+import sys
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen, QRadialGradient
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QWidget, QFrame
 
 
@@ -24,10 +26,40 @@ class GlassCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        asset_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[5]))
+        backdrop = asset_root / 'assets' / 'genshin-impact' / 'backgrounds'
+        self._mondstadt = QPixmap(str(backdrop / 'mondstadt-glass.webp'))
+        self._mondstadt_blurred = QPixmap(str(backdrop / 'mondstadt-glass-blurred.webp'))
+        self._backdrop_size = None
+        self._sharp_cache = QPixmap()
+        self._blur_cache = QPixmap()
         self._phase = 0
         self._twinkle = QTimer(self)
         self._twinkle.timeout.connect(self._advance_stars)
-        self._twinkle.start(90)
+        if self._mondstadt.isNull():
+            self._twinkle.start(90)
+
+    def _scaled_backdrop(self, blurred=False):
+        size = self.size()
+        if size != self._backdrop_size:
+            self._backdrop_size = size
+            for source, attribute in ((self._mondstadt, '_sharp_cache'),
+                                      (self._mondstadt_blurred, '_blur_cache')):
+                if source.isNull() or size.isEmpty():
+                    setattr(self, attribute, QPixmap())
+                    continue
+                scaled = source.scaled(size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                       Qt.TransformationMode.SmoothTransformation)
+                left = max(0, (scaled.width() - size.width()) // 2)
+                top = max(0, (scaled.height() - size.height()) // 2)
+                setattr(self, attribute, scaled.copy(left, top, size.width(), size.height()))
+        return self._blur_cache if blurred else self._sharp_cache
+
+    def glass_sample(self, origin, size):
+        backdrop = self._scaled_backdrop(blurred=True)
+        if backdrop.isNull():
+            return QPixmap()
+        return backdrop.copy(origin.x(), origin.y(), size.width(), size.height())
 
     def _advance_stars(self):
         if self.isVisible():
@@ -38,6 +70,17 @@ class GlassCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         width, height = self.width(), self.height()
+
+        backdrop = self._scaled_backdrop()
+        if not backdrop.isNull():
+            painter.drawPixmap(0, 0, backdrop)
+            veil = QLinearGradient(0, 0, width, height)
+            veil.setColorAt(0.0, QColor(221, 238, 246, 55))
+            veil.setColorAt(0.55, QColor(222, 237, 242, 28))
+            veil.setColorAt(1.0, QColor(22, 48, 70, 55))
+            painter.fillRect(self.rect(), veil)
+            painter.end()
+            return
 
         # §26 — dark blue-gray base, NOT flat black
         # bg-canvas #0C1018 → bg-elevated #121824 diagonal gradient
@@ -96,49 +139,52 @@ class GlassCanvas(QWidget):
         painter.end()
 
 
-class SmokedGlassFrame(QFrame):
-    """Hero card glass surface — §5 standard glass panel, §2.3 thin ornament.
+class BackdropGlassFrame(QFrame):
+    """A translucent panel that samples the blurred Mondstadt canvas behind it."""
 
-    Spec values:
-      background  rgba(20, 27, 39, 0.68)
-      border      1 px rgba(255,255,255,0.08)
-      shadow      0 16px 48px rgba(0,0,0,0.20)  [Qt: outer rim glow]
-      radius      15 px  (radius-md 14 px, +1 for hero emphasis)
-
-    Decorative corner marks follow §2.3 "detail / modal" rule:
-    thin gold lines, ≤125 alpha — they slow the eye at card edges
-    without competing with content.
-    """
+    def __init__(self, parent=None, *, warm=False):
+        super().__init__(parent)
+        self._warm = warm
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-
-        # §5 glass fill — dark blue-navy, low opacity equivalent via opaque dark
-        fill = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        fill.setColorAt(0.0, QColor(28, 40, 60, 215))    # slightly lighter top-left
-        fill.setColorAt(0.5, QColor(18, 26, 42, 228))    # bg-panel-strong center
-        fill.setColorAt(1.0, QColor(22, 32, 50, 212))    # warm edge
-
-        # §5 border — 1px rgba(255,255,255,0.08) low-contrast
-        rim = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        rim.setColorAt(0.0, QColor(255, 255, 255, 28))   # stroke-soft top
-        rim.setColorAt(0.5, QColor(217, 194, 139, 45))   # gold-soft mid (accent rim)
-        rim.setColorAt(1.0, QColor(255, 255, 255, 18))   # stroke-soft bottom
-
-        painter.setBrush(fill)
-        painter.setPen(QPen(rim, 1.2))
-        painter.drawRoundedRect(rect, 15, 15)
-
-        # Inner highlight line — §25 glow only at edges, low opacity
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        canvas = self.window().centralWidget()
+        if isinstance(canvas, GlassCanvas):
+            origin = self.mapTo(canvas, QPoint(0, 0))
+            sample = canvas.glass_sample(origin, self.size())
+            if not sample.isNull():
+                painter.setClipPath(self._rounded_path(rect))
+                painter.drawPixmap(0, 0, sample)
+                painter.setClipping(False)
+        tint = QColor(250, 247, 235, 211) if self._warm else QColor(248, 252, 252, 194)
+        painter.setBrush(tint)
+        painter.setPen(QPen(QColor(255, 255, 255, 225), 1.4))
+        painter.drawRoundedRect(rect, 20, 20)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 12), 1))
-        painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 13, 13)
+        painter.setPen(QPen(QColor(255, 255, 255, 110), 1))
+        painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 17, 17)
+        painter.end()
 
-        # §2.3 — thin fantasy corner marks (detail view ornament)
-        # Only at top corners; gold-soft α=90 (restrained)
-        painter.setPen(QPen(QColor(217, 194, 139, 90), 1))
+    @staticmethod
+    def _rounded_path(rect):
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRoundedRect(rect, 20, 20)
+        return path
+
+
+class SmokedGlassFrame(BackdropGlassFrame):
+    """The primary action card shares the real blurred backdrop and gold detail."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(QColor(178, 139, 77, 130), 1))
         for left in (True, False):
             x = rect.left() + 16 if left else rect.right() - 16
             direction = 1 if left else -1

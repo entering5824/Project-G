@@ -107,7 +107,9 @@ class SnapshotEditorDialog(GlassDialog):
         tabs = QTabWidget()
         self.tabs = tabs
         json_tab = QWidget(); json_layout = QVBoxLayout(json_tab)
-        json_layout.addWidget(QLabel("Dán Account Snapshot JSON hoặc mở tệp. Bộ thánh di vật đang kích hoạt sẽ được tính lại từ từng ô trang bị."))
+        json_intro = QLabel("Dán Account Snapshot JSON hoặc mở tệp. Bộ thánh di vật đang kích hoạt sẽ được tính lại từ từng ô trang bị.")
+        json_intro.setWordWrap(True)
+        json_layout.addWidget(json_intro)
         self.editor = QTextEdit()
         self.editor.setPlaceholderText('{"version":1,"characters":{"Mavuika":{"level":90,"ascension":6,"constellation":0,"weapon":{"key":"A Thousand Blazing Suns","level":90},"talents":{"normal":6,"skill":9,"burst":9},"artifacts":{},"activeSets":[]}}}')
         json_layout.addWidget(self.editor, 1)

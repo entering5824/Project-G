@@ -5,9 +5,11 @@ from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
 from projectg.presentation.desktop.pyside6.theme import set_state
 from projectg.presentation.desktop.pyside6.responsive_grid import ResponsiveCardGrid
 from projectg.presentation.desktop.pyside6.assets import get_character_pixmap, get_weapon_pixmap
-from projectg.presentation.desktop.pyside6.glass import SmokedGlassFrame
+from projectg.presentation.desktop.pyside6.glass import BackdropGlassFrame
 from projectg.presentation.desktop.pyside6.empty_state import EmptyState
 from projectg.presentation.desktop.pyside6.goal_copy import goal_display_title
+from projectg.presentation.desktop.pyside6.action_queue import availability_text
+from projectg.presentation.desktop.pyside6.character_roster import CharacterRosterDelegate
 
 
 class CharactersPage:
@@ -15,6 +17,7 @@ class CharactersPage:
         page = QWidget()
         page.setObjectName("characterPage")
         body = QVBoxLayout(page)
+        body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(12)
 
         self.character_picker = QComboBox()
@@ -28,16 +31,18 @@ class CharactersPage:
 
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName("characterSplitter")
 
         # Left Panel: Search + Character List
-        left_panel = QWidget()
+        left_panel = BackdropGlassFrame()
+        left_panel.setObjectName("characterRoster")
         self.character_left_panel = left_panel
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(18, 20, 18, 16)
+        left_layout.setSpacing(12)
 
-        roster_label = QLabel("NHÂN VẬT TRONG TÀI KHOẢN")
-        roster_label.setObjectName("eyebrow")
+        roster_label = QLabel("Đội hình của bạn")
+        roster_label.setObjectName("characterSectionTitle")
         self.roster_label = roster_label
         left_layout.addWidget(roster_label)
 
@@ -49,9 +54,25 @@ class CharactersPage:
         self.character_search.textChanged.connect(self._filter_characters)
         left_layout.addWidget(self.character_search)
 
+        self._character_filter = "all"
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+        self.character_filter_buttons = {}
+        for key, label in (("all", "Tất cả"), ("ready", "Có thể làm"),
+                           ("wait", "Cần chuẩn bị")):
+            button = QPushButton(label)
+            button.setObjectName("characterFilter")
+            button.setCheckable(True)
+            button.setChecked(key == "all")
+            button.clicked.connect(lambda _checked=False, mode=key: self._set_character_filter(mode))
+            self.character_filter_buttons[key] = button
+            filter_row.addWidget(button)
+        left_layout.addLayout(filter_row)
+
         self.character_list = QListWidget()
         self.character_list.setObjectName("characterList")
-        self.character_list.setSpacing(4)
+        self.character_list.setItemDelegate(CharacterRosterDelegate(self.character_list))
+        self.character_list.setSpacing(6)
         self.character_list.setUniformItemSizes(True)
         self.character_list.currentRowChanged.connect(self._show_character)
         left_layout.addWidget(self.character_list, 1)
@@ -63,9 +84,10 @@ class CharactersPage:
         splitter.addWidget(left_panel)
 
         # Right Panel: Tabs (Visual Dashboard + Raw Text)
-        right_panel = QWidget()
+        right_panel = BackdropGlassFrame()
+        right_panel.setObjectName("characterDetailPanel")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(10, 10, 10, 12)
         right_layout.setSpacing(8)
 
         char_tabs = QTabWidget()
@@ -81,17 +103,16 @@ class CharactersPage:
         visual_layout.setSpacing(14)
 
         # Character Header Card
-        header_card = SmokedGlassFrame()
-        header_card.setObjectName("primary")
+        header_card = QFrame()
+        header_card.setObjectName("characterHero")
         header_layout = QHBoxLayout(header_card)
         self.character_header_layout = header_layout
         header_layout.setContentsMargins(24, 22, 24, 22)
         header_layout.setSpacing(16)
 
         self.char_avatar = QLabel()
-        self.char_avatar.setFixedSize(104, 104)
+        self.char_avatar.setFixedSize(164, 164)
         self.char_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header_layout.addWidget(self.char_avatar)
 
         header_info = QVBoxLayout()
         header_info.setSpacing(6)
@@ -99,6 +120,9 @@ class CharactersPage:
         self.char_name.setObjectName("headline")
         self.char_name.setWordWrap(True)
         header_info.addWidget(self.char_name)
+        self.char_hero_context = QLabel("Chọn một nhân vật để xem tiến độ")
+        self.char_hero_context.setObjectName("characterHeroContext")
+        header_info.addWidget(self.char_hero_context)
 
         badges_row = ResponsiveCardGrid(100, 2)
         self.char_tier_badge = QLabel("Ưu tiên: tự động")
@@ -128,19 +152,29 @@ class CharactersPage:
         header_info.addWidget(badges_row)
         badges_row.hide()
         header_layout.addLayout(header_info, 1)
+        header_layout.addWidget(self.char_avatar)
         visual_layout.addWidget(header_card)
 
-        next_card = QFrame()
-        next_card.setObjectName("surfaceCard")
+        next_card = BackdropGlassFrame(warm=True)
+        next_card.setObjectName("characterNext")
         next_layout = QHBoxLayout(next_card)
+        next_layout.setContentsMargins(22, 20, 22, 20)
+        next_layout.setSpacing(16)
         next_copy = QVBoxLayout()
-        next_copy.addWidget(QLabel("VIỆC NÊN LÀM TIẾP"))
+        next_copy.setSpacing(7)
+        next_label = QLabel("BƯỚC TIẾP THEO")
+        next_label.setObjectName("characterTaskLabel")
+        next_copy.addWidget(next_label)
         self.char_next_action = QLabel("Project G đang tìm bước tiếp theo…")
         self.char_next_action.setObjectName("section")
         self.char_next_action.setWordWrap(True)
         next_copy.addWidget(self.char_next_action)
+        self.char_next_status = QLabel()
+        self.char_next_status.setObjectName("badge")
+        next_copy.addWidget(self.char_next_status)
         next_layout.addLayout(next_copy, 1)
         self.char_next_button = QPushButton("Xem cách làm")
+        self.char_next_button.setObjectName("primaryButton")
         self.char_next_button.clicked.connect(self._open_character_next_action)
         next_layout.addWidget(self.char_next_button)
         visual_layout.addWidget(next_card)
@@ -382,7 +416,7 @@ class CharactersPage:
         left_panel.setMinimumWidth(150)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
-        splitter.setSizes([220, 740])
+        splitter.setSizes([340, 740])
         body.addWidget(splitter, 1)
         self.pages.addWidget(page)
 
@@ -408,11 +442,38 @@ class CharactersPage:
         self.char_substats_toggle.setText("Ẩn chỉ số phụ" if visible else "Xem chỉ số phụ")
 
 
+    def _set_character_filter(self, mode: str):
+        self._character_filter = mode
+        for key, button in self.character_filter_buttons.items():
+            button.setChecked(key == mode)
+        self._filter_characters(self.character_search.text())
+
+
+    def _character_step_state(self, key: str) -> str:
+        source = getattr(self, "_character_render_data", None) or self._data or {}
+        goals = (source.get("roadmap") or {}).get("global") or []
+        goal = next((item for item in goals
+                     if (item.get("character") or {}).get("key") == key
+                     and item.get("status") not in {"COMPLETE", "READY"}), None)
+        if not goal:
+            return "none"
+        return "ready" if availability_text(goal, self.action_queue_model.today_tasks) == "Làm được ngay" else "wait"
+
+
     def _filter_characters(self, query: str):
         query = query.strip().casefold()
+        first_visible = None
         for i in range(self.character_list.count()):
             item = self.character_list.item(i)
-            item.setHidden(bool(query and query not in item.text().casefold()))
+            state = self._character_step_state(item.text())
+            hide = bool((query and query not in item.text().casefold()) or
+                        (self._character_filter != "all" and state != self._character_filter))
+            item.setHidden(hide)
+            if not hide and first_visible is None:
+                first_visible = i
+        current = self.character_list.currentItem()
+        if first_visible is not None and (current is None or current.isHidden()):
+            self.character_list.setCurrentRow(first_visible)
         total = self.character_list.count()
         visible = sum(not self.character_list.item(i).isHidden() for i in range(total))
         self.character_search_feedback.setText(
@@ -422,6 +483,7 @@ class CharactersPage:
 
 
     def _render_characters(self, data):
+        self._character_render_data = data
         self.account_summary.setText(f"{len(data['characters'])} nhân vật trong tài khoản")
         selected = self.character_list.currentItem().text() if self.character_list.currentItem() else None
         self.character_list.clear()
@@ -429,7 +491,11 @@ class CharactersPage:
         for row in data["characters"]:
             key = row["key"]
             item = QListWidgetItem(key)
-            item.setIcon(QIcon(get_character_pixmap(key, 32)))
+            item.setIcon(QIcon(get_character_pixmap(key, 52)))
+            item.setData(Qt.ItemDataRole.UserRole, {
+                "level": row.get("level", 0),
+                "state": self._character_step_state(key),
+            })
             self.character_list.addItem(item)
 
         keys = [row["key"] for row in data["characters"]]
@@ -463,6 +529,12 @@ class CharactersPage:
                           and goal.get("status") not in {"COMPLETE", "READY"}), None)
         self._character_next_goal = next_goal
         self.char_next_action.setText(goal_display_title(next_goal) if next_goal else "Chưa có bước nâng cấp cần làm")
+        self.char_next_status.setText(
+            availability_text(next_goal, self.action_queue_model.today_tasks) if next_goal
+            else "Các mục tiêu hiện tại đã đạt hoặc chưa được thiết lập")
+        set_state(self.char_next_status,
+                  "success" if next_goal and next_goal.get("status") == "ACTIONABLE" else
+                  "warning" if next_goal and next_goal.get("status") == "BLOCKED" else "")
         self.char_next_button.setVisible(next_goal is not None)
         self.character_picker.blockSignals(True)
         self.character_picker.setCurrentIndex(index)
@@ -473,6 +545,7 @@ class CharactersPage:
 
         # 1. Header Card
         self.char_name.setText(char_key)
+        self.char_hero_context.setText(f"Cấp {row.get('level', 0)} · Xem bước nâng cấp phù hợp")
         self._refresh_character_avatar()
         profile_rows = row.get("buildProfiles") or []
         self.char_tier_badge.setText("Ưu tiên: tự động")
@@ -627,7 +700,7 @@ class CharactersPage:
 
     def _open_character_priorities(self):
         key = self._selected_character_key()
-        self.nav.setCurrentRow(3)
+        self.nav.setCurrentRow(4)
         if key:
             self.tier_search.setText(key)
 

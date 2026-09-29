@@ -8,6 +8,7 @@ from projectg.presentation.desktop.pyside6.empty_state import EmptyState
 from projectg.presentation.desktop.pyside6.responsive_grid import ResponsiveCardGrid
 from projectg.presentation.desktop.pyside6.goal_copy import goal_display_title
 from projectg.presentation.desktop.pyside6.action_queue import ActionQueueModel, ActionQueueFilter, ActionQueueDelegate, availability_text
+from projectg.presentation.desktop.pyside6.glass import BackdropGlassFrame
 
 
 class RoadmapPage:
@@ -104,14 +105,16 @@ class RoadmapPage:
         self.action_queue.selectionModel().currentChanged.connect(
             lambda index, _previous: self._show_action_detail(index, navigate=False))
         self.action_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.action_list_panel = QWidget()
+        self.action_list_panel = BackdropGlassFrame()
+        self.action_list_panel.setObjectName("actionListGlass")
         action_list_layout = QVBoxLayout(self.action_list_panel)
-        action_list_layout.setContentsMargins(0, 0, 0, 0)
+        action_list_layout.setContentsMargins(10, 10, 10, 10)
         action_list_layout.addWidget(self.action_queue)
         self.action_splitter.addWidget(self.action_list_panel)
-        self.action_detail_panel = QFrame()
+        self.action_detail_panel = BackdropGlassFrame()
         self.action_detail_panel.setObjectName("surfaceCard")
         detail_layout = QVBoxLayout(self.action_detail_panel)
+        self.action_detail_layout = detail_layout
         detail_layout.setContentsMargins(24, 24, 24, 24)
         self.action_back = QPushButton("← Kế hoạch")
         self.action_back.setObjectName("ghostButton")
@@ -119,6 +122,7 @@ class RoadmapPage:
         detail_layout.addWidget(self.action_back, 0, Qt.AlignmentFlag.AlignLeft)
         self.action_detail_title = QLabel()
         self.action_detail_title.setObjectName("section")
+        self.action_detail_title.setTextFormat(Qt.TextFormat.PlainText)
         self.action_detail_title.setWordWrap(True)
         detail_layout.addWidget(self.action_detail_title)
         self.action_detail_status = QLabel()
@@ -126,17 +130,77 @@ class RoadmapPage:
         self.action_detail_status.setWordWrap(True)
         detail_layout.addWidget(self.action_detail_status)
         detail_scroll = QScrollArea()
+        self.action_detail_scroll = detail_scroll
         detail_scroll.setWidgetResizable(True)
         detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
         detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         detail_content = QWidget()
         detail_content_layout = QVBoxLayout(detail_content)
         detail_content_layout.setContentsMargins(0, 12, 4, 0)
-        detail_content_layout.setSpacing(16)
+        detail_content_layout.setSpacing(20)
+        progress_group = QVBoxLayout()
+        progress_group.setSpacing(4)
+        progress_heading = QLabel("BƯỚC NÂNG CẤP")
+        progress_heading.setObjectName("eyebrow")
+        progress_group.addWidget(progress_heading)
+        self.action_detail_progress = QLabel()
+        self.action_detail_progress.setObjectName("stepTitle")
+        self.action_detail_progress.setTextFormat(Qt.TextFormat.PlainText)
+        self.action_detail_progress.setWordWrap(True)
+        progress_group.addWidget(self.action_detail_progress)
+        detail_content_layout.addLayout(progress_group)
+
+        reason_group = QVBoxLayout()
+        reason_group.setSpacing(4)
+        reason_heading = QLabel("VÌ SAO BƯỚC NÀY")
+        reason_heading.setObjectName("eyebrow")
+        reason_group.addWidget(reason_heading)
+        self.action_detail_reason = QLabel()
+        self.action_detail_reason.setObjectName("secondaryText")
+        self.action_detail_reason.setTextFormat(Qt.TextFormat.PlainText)
+        self.action_detail_reason.setWordWrap(True)
+        self.action_detail_reason.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        reason_group.addWidget(self.action_detail_reason)
+        detail_content_layout.addLayout(reason_group)
+
+        self.action_materials_group = QWidget()
+        self.action_materials_group.setObjectName("detailTransparent")
+        materials_layout = QVBoxLayout(self.action_materials_group)
+        materials_layout.setContentsMargins(0, 0, 0, 0)
+        materials_layout.setSpacing(5)
+        materials_heading = QLabel("VẬT PHẨM ƯỚC TÍNH")
+        materials_heading.setObjectName("eyebrow")
+        materials_layout.addWidget(materials_heading)
+        materials_note = QLabel("Tổng cần cho bước này; chưa trừ vật phẩm đang có.")
+        materials_note.setObjectName("metricLabel")
+        materials_note.setWordWrap(True)
+        materials_layout.addWidget(materials_note)
+        self.action_material_rows = QVBoxLayout()
+        self.action_material_rows.setSpacing(4)
+        materials_layout.addLayout(self.action_material_rows)
+        detail_content_layout.addWidget(self.action_materials_group)
+
+        self.action_source_group = QWidget()
+        self.action_source_group.setObjectName("detailTransparent")
+        source_layout = QVBoxLayout(self.action_source_group)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.setSpacing(4)
+        source_heading = QLabel("NGUỒN THỰC HIỆN")
+        source_heading.setObjectName("eyebrow")
+        source_layout.addWidget(source_heading)
+        self.action_detail_source = QLabel()
+        self.action_detail_source.setObjectName("secondaryText")
+        self.action_detail_source.setTextFormat(Qt.TextFormat.PlainText)
+        self.action_detail_source.setWordWrap(True)
+        self.action_detail_source.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        source_layout.addWidget(self.action_detail_source)
+        detail_content_layout.addWidget(self.action_source_group)
+
         self.action_detail_body = QLabel()
         self.action_detail_body.setObjectName("secondaryText")
         self.action_detail_body.setWordWrap(True)
         self.action_detail_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.action_detail_body.hide()
         detail_content_layout.addWidget(self.action_detail_body)
         self.action_character_button = QPushButton("Xem hồ sơ nhân vật")
         self.action_character_button.clicked.connect(self._open_selected_action_character)
@@ -180,7 +244,7 @@ class RoadmapPage:
             return
         self._selected_action_goal = goal
         character = (goal.get("character") or {}).get("name") or (goal.get("character") or {}).get("key") or "Nhân vật"
-        self.action_detail_title.setText(f"{character}\n{goal_display_title(goal)}")
+        self.action_detail_title.setText(f"{character} · {goal_display_title(goal)}")
         self.action_detail_status.setText(availability_text(goal, self.action_queue_model.today_tasks))
         set_state(self.action_detail_status,
                   "success" if goal.get("status") == "ACTIONABLE" else
@@ -188,11 +252,20 @@ class RoadmapPage:
         current = (goal.get("current") or {}).get("value")
         milestone = (goal.get("nextMilestone") or {}).get("value")
         progress = f"{current} → {milestone}" if current is not None and milestone is not None else "Xem bước nâng cấp"
+        self.action_detail_progress.setText(progress)
         lines = [f"Bước nâng cấp: {progress}"]
         task = next((item for item in self.action_queue_model.today_tasks
                      if (item.get("primaryGoal") or {}).get("goalKey") == goal.get("goalKey")), None)
+        reason = task.get("whySummary") if task else None
+        costs = task.get("requiredCost") or {} if task else {}
+        source = task.get("source") or {} if task else {}
         if task:
-            source = task.get("source") or {}
+            if reason:
+                lines.append("Vì sao bước này? " + reason)
+            if costs:
+                lines.append("Tổng vật phẩm ước tính (chưa trừ vật phẩm đang có):\n" + "\n".join(
+                    f"{name}: {'chưa rõ số lượng' if amount is None else amount}"
+                    for name, amount in costs.items()))
             if source.get("name"):
                 lines.append("Nguồn: " + source["name"])
             if task.get("availableWeekdays"):
@@ -200,27 +273,63 @@ class RoadmapPage:
             resin_cost = source.get("resinCost", source.get("resin_cost"))
             if resin_cost is not None:
                 lines.append(f"Tốn khoảng {resin_cost} Nhựa/lượt")
-            if task.get("whySummary"):
-                lines.append("Vì sao bước này? " + task["whySummary"])
         if goal.get("planningGroup") == "PERSONAL":
-            lines.append("Đứng trước vì đây là mục tiêu cá nhân bạn đã chọn.")
+            priority_reason = "Đứng trước vì đây là mục tiêu cá nhân bạn đã chọn."
         elif goal.get("planningGroup") == "THEATER":
-            lines.append("Đây là bước chuẩn bị cho Nhà Hát.")
+            priority_reason = "Đây là bước chuẩn bị cho Nhà Hát."
         else:
-            lines.append(f"Project G xếp bước này ở vị trí #{goal.get('rank', '—')} theo kế hoạch hiện tại.")
+            priority_reason = f"Project G xếp bước này ở vị trí #{goal.get('rank', '—')} theo kế hoạch hiện tại."
+        lines.append(priority_reason)
+        self.action_detail_reason.setText("\n".join(filter(None, (reason, priority_reason))))
+        while self.action_material_rows.count():
+            row = self.action_material_rows.takeAt(0)
+            if row.widget():
+                row.widget().deleteLater()
+        for name, amount in costs.items():
+            row = QWidget()
+            row.setObjectName("materialRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(12)
+            name_label = QLabel(str(name))
+            name_label.setObjectName("secondaryText")
+            name_label.setTextFormat(Qt.TextFormat.PlainText)
+            name_label.setWordWrap(True)
+            amount_label = QLabel("Chưa rõ" if amount is None else str(amount))
+            amount_label.setObjectName("materialAmount")
+            amount_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            amount_label.setMinimumWidth(82)
+            row_layout.addWidget(name_label, 1)
+            row_layout.addWidget(amount_label)
+            self.action_material_rows.addWidget(row)
+        self.action_materials_group.setVisible(bool(costs))
+        source_lines = []
+        if source.get("name"):
+            source_lines.append(source["name"])
+        if task and task.get("availableWeekdays"):
+            source_lines.append("Mở: " + " · ".join(task["availableWeekdays"]))
+        resin_cost = source.get("resinCost", source.get("resin_cost"))
+        if resin_cost is not None:
+            source_lines.append(f"Tốn khoảng {resin_cost} Nhựa/lượt")
+        self.action_detail_source.setText("\n".join(source_lines))
+        self.action_source_group.setVisible(bool(source_lines))
         self.action_detail_body.setText("\n\n".join(lines))
+        self.action_detail_scroll.verticalScrollBar().setValue(0)
         self.action_character_button.setEnabled(bool((goal.get("character") or {}).get("key")))
         if navigate and self.width() < 1060:
             self.action_list_panel.hide()
             self.action_detail_panel.show()
             self.roadmap_search.hide()
             self.roadmap_filter.hide()
+            if self.height() < 700:
+                self.roadmap_summary.hide()
 
 
     def _back_to_action_queue(self):
         self.action_list_panel.show()
         self.roadmap_search.show()
         self.roadmap_filter.show()
+        self.roadmap_summary.setVisible(self.height() >= 700 or self.roadmap_metrics.isHidden())
         if self.width() < 1060:
             self.action_detail_panel.hide()
         self.action_queue.setFocus()

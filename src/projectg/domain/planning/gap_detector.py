@@ -44,7 +44,6 @@ def _marginal_importance(target: dict[str, Any], component: str, current: int, t
                 continue
             if current < upper and target_value > lower:
                 factors.append(float(value))
-                break
     return float(base_importance) * (min(factors) if factors else 1.0)
 
 
